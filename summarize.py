@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from statistics import median
 
-from runner import KIT, MODES, SVF_COMMIT, read_lines
+from runner.runner import KIT, MODES, SVF_COMMIT, read_lines
 
 
 REASONS = (

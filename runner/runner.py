@@ -27,7 +27,8 @@ def build():
     commands = [
         ["cmake", "-S", "/svf", "-B", BUILD, "-DSVF_WARN_AS_ERROR=OFF", *settings],
         ["cmake", "--build", BUILD, "--target", "SvfLLVM", "-j", "8"],
-        ["cmake", "-S", "/src", "-B", BUILD / "wrapper", *settings],
+        ["cmake", "-S", "/src", "-B", BUILD / "wrapper",
+         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", *settings],
         ["cmake", "--build", BUILD / "wrapper", "-j", "8"],
     ]
     for command in commands:
