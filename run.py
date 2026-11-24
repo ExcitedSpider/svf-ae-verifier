@@ -21,6 +21,8 @@ MEMORY = 4 * 1024**3
 
 
 def build():
+    # SVF's build-tree export advertises this generated include directory.
+    (BUILD / "include/SVF").mkdir(parents=True, exist_ok=True)
     settings = ["-DCMAKE_BUILD_TYPE=Release", "-DLLVM_DIR=/opt/llvm/lib/cmake/llvm"]
     commands = [
         ["cmake", "-S", "/svf", "-B", BUILD, "-DSVF_WARN_AS_ERROR=OFF", *settings],
@@ -33,8 +35,6 @@ def build():
 
 
 def read_lines(path):
-    if not path.exists():
-        return []
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
@@ -104,16 +104,19 @@ def measure(source, mode):
                 status, diagnostic = run_process(command, directory, start + LIMIT)
                 if status != "ok":
                     break
-            inventory = read_lines(Path(directory) / "inventory.jsonl")
+            inventory_path = Path(directory) / "inventory.jsonl"
             if status == "ok":
+                inventory = read_lines(inventory_path)
                 facts = read_lines(Path(directory) / "state.jsonl")
-                if [dict((key, row[key]) for key in entry) for row, entry in
-                        zip(facts, inventory)] != inventory or len(facts) != len(inventory):
+                locations = [{key: row[key] for key in entry}
+                             for row, entry in zip(facts, inventory)]
+                if locations != inventory or len(facts) != len(inventory):
                     raise ValueError("Final observations differ from the site inventory")
                 for site in facts:
                     verdict, reason = decide(site)
                     sites.append(dict(site, verdict=verdict, reason=reason))
-            else:
+            elif inventory_path.exists():
+                inventory = read_lines(inventory_path)
                 sites = [dict(row, has_state=None, intervals={}, verdict="unknown",
                               reason=f"run-{status}") for row in inventory]
         except (OSError, ValueError, KeyError) as error:
