@@ -18,3 +18,49 @@ The verifier writes one JSON object. Analysis diagnostics go to stderr. Reports 
 Each site has `property`, `kind`, `location`, `verdict`, `reason` and `evidence`. Location contains `file`, `line`, `column` and `function`. Unknown numbers use zero and unknown strings are empty. Reach intrinsics can supply a source line independent of debug columns.
 
 Evidence contains named intervals, represented by two inclusive bounds or null for unavailable values. Finite bounds are JSON integers. Infinite bounds use the strings `"-inf"` and `"+inf"`. Overflow evidence uses `width` and per-target `offset.<address>` and `size.<address>` keys. Addresses are SVF abstract identifiers local to the run.
+
+## Example
+
+This report was emitted for `verifier_assert(1)` on line 5 of `example.c` after canonical compilation and `mem2reg`.
+
+```json
+{
+  "ae_mode": "sparse",
+  "command_line": [
+    "./svf-verifier",
+    "-property=reach",
+    "-ae-sparsity=sparse",
+    "example.ll"
+  ],
+  "properties": {
+    "reach": "proved"
+  },
+  "schema_version": 1,
+  "sites": [
+    {
+      "evidence": {
+        "condition": [
+          1,
+          1
+        ]
+      },
+      "kind": "verifier_assert",
+      "location": {
+        "column": 5,
+        "file": "example.c",
+        "function": "main",
+        "line": 5
+      },
+      "property": "reach",
+      "reason": "ae-condition-true",
+      "verdict": "proved"
+    }
+  ],
+  "status": "ok",
+  "svf_commit": "a8a0f5181748059c2df2281e5e4ada63ccda3832",
+  "svf_version": "3.4",
+  "time_unix_ms": 1795563783565,
+  "tool_commit": "397bb90e9e3c26bcbfdae8aa7a368c4c9356930f",
+  "tool_version": "0.1.0"
+}
+```
