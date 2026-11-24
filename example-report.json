@@ -1,0 +1,62 @@
+{
+  "mode": "dense",
+  "command": [
+    [
+      "/opt/llvm/bin/clang",
+      "-g",
+      "-S",
+      "-c",
+      "-emit-llvm",
+      "-Xclang",
+      "-disable-O0-optnone",
+      "-fno-discard-value-names",
+      "-I/e/include",
+      "/e/cases/c01_holds.c",
+      "-o",
+      "f.ll"
+    ],
+    [
+      "/opt/llvm/bin/opt",
+      "-S",
+      "-p=mem2reg",
+      "f.ll",
+      "-o",
+      "f.ll"
+    ],
+    [
+      "/work/build/wrapper/ae-state",
+      "-ae-sparsity=dense",
+      "f.ll",
+      "inventory.jsonl",
+      "state.jsonl"
+    ]
+  ],
+  "status": "ok",
+  "diagnostic": null,
+  "seconds": 0.05397,
+  "sites": [
+    {
+      "column": 5,
+      "file": "/e/cases/c01_holds.c",
+      "function": "main",
+      "has_state": true,
+      "intervals": {
+        "condition": [
+          1,
+          1
+        ]
+      },
+      "kind": "verifier_assert",
+      "line": 4,
+      "verdict": "safe",
+      "reason": "ae-condition-true"
+    }
+  ],
+  "schema_version": 1,
+  "tool_commit": "ee2157d459189ca4132747c19bb60dc9cfef8210",
+  "svf_commit": "a8a0f5181748059c2df2281e5e4ada63ccda3832",
+  "suite": "cases",
+  "task": "c01_holds",
+  "program": "/e/cases/c01_holds.c",
+  "verdict": "safe"
+}
