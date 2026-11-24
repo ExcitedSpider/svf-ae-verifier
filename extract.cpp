@@ -51,8 +51,8 @@ struct Site
                 line = macroLine->getZExtValue();
         std::string file = debug ? debug->getFilename().str()
                                  : call->getModule()->getSourceFileName();
-        return {{"file", file}, {"line", line}, {"column", column},
-                {"function", call->getFunction()->getName()}, {"kind", kind}};
+        return json::Object{{"file", file}, {"line", line}, {"column", column},
+                            {"function", call->getFunction()->getName()}, {"kind", kind}};
     }
 };
 
