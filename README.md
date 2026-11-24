@@ -11,7 +11,7 @@ This proof of concept reads SVF Abstract Execution's final states and emits one 
 Use an unmodified SVF checkout at `a8a0f5181748059c2df2281e5e4ada63ccda3832` in `svf/` and the `localhost/svf22-z3:llvm22` Podman image. The build below mounts SVF read-only and puts all build output in `build/`. Set `kit` to the directory containing the reachability kit.
 
 ```sh
-kit=<kit>
+kit=/path/to/kit
 mkdir -p build
 podman run --rm --pull=never --network=none \
   -v "$PWD:/src:ro" -v "$PWD/svf:/svf:ro" \

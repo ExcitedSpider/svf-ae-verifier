@@ -132,3 +132,25 @@ $ git -C svf rev-parse HEAD
 a8a0f5181748059c2df2281e5e4ada63ccda3832
 $ git -C svf status --porcelain
 ```
+
+## A2 publication
+
+GitHub rejected the regular push of `6410689` to the authorized repository with HTTP 403 because `ExcitedAgent` lacks write access. The local A2 history is intact. The push did not establish an `origin/main` tracking ref for `git log --oneline origin/main | head`.
+
+```text
+$ git ls-files
+.gitignore
+CMakeLists.txt
+PROGRESS.md
+README.md
+REPORT.md
+SCHEMA.md
+include/Verifier/Verifier.h
+lib/Verifier/Reachability.cpp
+lib/Verifier/Verifier.cpp
+runner/runner.py
+summarize.py
+tools/verifier/verifier.cpp
+```
+
+The current tree excludes generated reports. The preserved local history contains the original conformance example report.
