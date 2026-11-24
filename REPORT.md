@@ -91,7 +91,7 @@ podman run --rm --pull=never --network=none --name ae-reach-py-evaluation \
   -v "$PWD:/src:ro" -v "$PWD/svf:/svf:ro" \
   -v "$PWD/build:/work/build:rw" -v "$PWD/../ae-reach-eval:/e:ro" \
   -v "$PWD/../ae-reach-results/py:/results:rw" \
-  localhost/svf22-z3:llvm22 python3 /src/runner.py "$(git rev-parse 22979d9)"
+  localhost/svf22-z3:llvm22 python3 /src/runner/runner.py "$(git rev-parse 585096e)"
 ```
 
 ## A2 verifier and runner refactor
@@ -104,6 +104,28 @@ podman run --rm --pull=never --network=none --name ae-reach-py-evaluation \
 All 741 runs completed successfully. The 1,104 site records matched the baseline exactly, including all verdicts, reasons and intervals across 81 conformance records and 1,023 SV-COMP records. All 741 program verdicts and all 681 SV-COMP task verdicts matched. The baseline is preserved in `../ae-reach-results/py-before-a2/`.
 
 The measurement commit recorded in the new results is `22979d9113fb4f8db3207cf74a019bef7cf4a94c`.
+
+```console
+$ git -C svf rev-parse HEAD
+a8a0f5181748059c2df2281e5e4ada63ccda3832
+$ git -C svf status --porcelain
+```
+
+## A2 Verifier module
+
+| File | Lines | Responsibility |
+| --- | ---: | --- |
+| `include/Verifier/Verifier.h` | 44 | Declares the final-state collection API and typed site results. |
+| `lib/Verifier/Verifier.cpp` | 52 | Visits SVF call nodes and reads their source locations. |
+| `lib/Verifier/Reachability.cpp` | 80 | Identifies checks and evaluates verdicts using the public AE API. |
+| `tools/verifier/verifier.cpp` | 80 | Loads the module, sets up and runs AE, and prints site results as JSON. |
+| `runner/runner.py` | 177 | Compiles and runs verification tasks under the process limits and writes the reports and JSONL files. |
+
+`grep -rn llvm include/Verifier lib/Verifier` returned no matches. The `Verifier` library built as a separate CMake target. Both library compilation commands contain only project and SvfCore include paths, as recorded in `build/wrapper/compile_commands.json`.
+
+All 741 runs succeeded. All 1,104 site records matched the saved baseline, including verdicts, reasons, intervals, and locations. All 741 program verdicts and 681 SV-COMP task rows matched, with elapsed time excluded from the task-row comparison. ICFG iteration changed the site order in 21 reports, so site records were compared as multisets. The baseline is preserved in `../ae-reach-results/py-before-verifier-module/`.
+
+The final measurement commit is `585096e37855b04b960438b413b214e93b374943`.
 
 ```console
 $ git -C svf rev-parse HEAD

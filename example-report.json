@@ -31,7 +31,7 @@
   ],
   "status": "ok",
   "diagnostic": null,
-  "seconds": 0.052099,
+  "seconds": 0.054519,
   "sites": [
     {
       "column": 5,
@@ -51,7 +51,7 @@
     }
   ],
   "schema_version": 1,
-  "tool_commit": "22979d9113fb4f8db3207cf74a019bef7cf4a94c",
+  "tool_commit": "585096e37855b04b960438b413b214e93b374943",
   "svf_commit": "a8a0f5181748059c2df2281e5e4ada63ccda3832",
   "suite": "cases",
   "task": "c01_holds",

@@ -18,13 +18,13 @@ See [example-report.json](example-report.json) for a real run.
 
 | Site field | Meaning |
 | --- | --- |
-| `file`, `line`, `column`, `function` | LLVM source location and parent function. Verifier macro lines come from the explicit line argument. |
+| `file`, `line`, `column`, `function` | SVF call-node source location and parent function. Verifier macro lines come from the constant line argument when available. An absent filename is empty, and absent coordinates are zero. |
 | `kind` | `verifier_assert`, `verifier_eq`, `verifier_unreachable`, or `reach_error` |
 | `has_state` | Boolean presence of a final AE state at the call node |
 | `intervals` | Named intervals with two inclusive bounds, using integers or the strings `"-inf"` and `"+inf"`. Null represents a missing value or a value without an interval. Assertions have `condition`, and equality sites also have `lhs` and `rhs`. The object is empty for unconditional checks. |
 | `verdict`, `reason` | The per-site result and the applicable AE reason supplied by the verifier |
 
-The verifier writes one site object per line on stdout and sends SVF diagnostics to stderr. The runner copies the site objects into the report after a successful process exit. The runner checks conformance line coverage against the manifest. When a conformance run fails, `sites.jsonl` records an `error` entry with `run-<status>` for each expected line.
+The Verifier library visits the SVF ICFG and returns typed site results. The verifier executable writes one site object per line on stdout in ICFG order and sends SVF diagnostics to stderr. The runner copies the site objects into the report after a successful process exit. The runner checks conformance line coverage against the manifest. When a conformance run fails, `sites.jsonl` records an `error` entry with `run-<status>` for each expected line.
 
 For equality checks, `ae-condition-true` requires AE to report `[1, 1]` for the C comparison and the same finite singleton for both reporting operands. A condition of `[0, 0]` produces `ae-must-fail-if-reached`. The verifier uses the final call-node state and AE's own lookup for sparse operands. Cases with no usable interval produce `ae-condition-unknown` if the node has a state.
 

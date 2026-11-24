@@ -1,5 +1,6 @@
 # Progress (UTC)
 
+- 2026-11-24 22:59 — Built the standalone Verifier target without LLVM include paths. All 741 runs succeeded and matched the saved A2 baseline on site evidence and program verdicts. ICFG order changed in 21 reports.
 - 2026-11-24 22:56 — Completed the A2 split and reran all 741 measurements. Every run status, program verdict and complete site record matched the saved baseline. The pinned SVF tree remained clean.
 
 - 2026-11-24 22:30 — Cloned the pinned upstream object from the local checkout to comply with the GitHub restriction. Started an out-of-tree Release build in the specified LLVM 22 image.
