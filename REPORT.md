@@ -135,7 +135,7 @@ $ git -C svf status --porcelain
 
 ## A2 publication
 
-GitHub rejected the regular push of `6410689` to the authorized repository with HTTP 403 because `ExcitedAgent` lacks write access. The local A2 history is intact. The push did not establish an `origin/main` tracking ref for `git log --oneline origin/main | head`.
+After accepting the repository invitation, the regular push to `ExcitedSpider/svf-ae-verifier` succeeded and established tracking for `origin/main`.
 
 ```text
 $ git ls-files
@@ -153,4 +153,18 @@ summarize.py
 tools/verifier/verifier.cpp
 ```
 
-The current tree excludes generated reports. The preserved local history contains the original conformance example report.
+```text
+$ git log --oneline origin/main | head
+667199c Record the A2 publication attempt
+6410689 Prepare the A2 verifier for public use
+09f187f Document the Verifier module and baseline comparison
+585096e Separate the LLVM-free SVF Verifier library from its tool
+865641d Record A2 comparison and update the verifier documentation
+22979d9 Move final-state site verdicts into the C++ verifier
+2c31b11 Document and verify the 741-run AE evaluation
+ee2157d Construct LLVM 22 JSON objects explicitly
+305fcf8 Prepare the SVF build-tree include path and verify extractor output
+19e9105 Run isolated AE measurements and generate JSON reports
+```
+
+The published tree excludes generated reports. The preserved history contains the original conformance example report.
