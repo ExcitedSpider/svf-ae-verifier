@@ -125,14 +125,37 @@ The schema is documented in `docs/report.md`, with an example. SVF's own console
 ## Repository layout
 
 ```
-include/verifier.h                       # property language for users' C code
-include/Verifier/{Verifier,Property,StateView,Result}.h
-lib/Verifier/{Verifier,StateView,Result}.cpp
-lib/Verifier/Properties/{Reachability,BufferOverflow}.cpp
-tools/svf-verifier/main.cpp
-tests/reach/*.c, tests/overflow/*.c       # each file states its expected verdicts
-docs/{properties,report}.md
-CMakeLists.txt                           # find_package(SVF); library + tool + tests
+svf-ae-verifier/
+├── CMakeLists.txt                    # find_package(SVF); library + tool + tests
+├── README.md
+├── DESIGN.md
+├── include/
+│   ├── verifier.h                    # property language for users' C code (macros, intrinsics, nondet)
+│   └── Verifier/                     # library API, LLVM-free
+│       ├── Verifier.h                # runs properties over the ICFG after AE
+│       ├── Property.h                # Property interface, Site
+│       ├── StateView.h               # read-only queries of AE's final state
+│       ├── Result.h                  # Verdict, SourceLocation, Evidence, Result
+│       └── Properties/
+│           ├── Reachability.h
+│           └── BufferOverflow.h
+├── lib/
+│   └── Verifier/                     # library implementation, LLVM-free
+│       ├── Verifier.cpp
+│       ├── StateView.cpp             # the only file that calls AE
+│       ├── Result.cpp                # includes source-location parsing
+│       └── Properties/
+│           ├── Reachability.cpp      # reach sites + verdict table
+│           └── BufferOverflow.cpp    # overflow sites + verdict table
+├── tools/
+│   └── svf-verifier/
+│       └── main.cpp                  # options, SVF + AE setup, report writing (only place using LLVM)
+├── tests/
+│   ├── reach/*.c                     # each file states its expected verdicts
+│   └── overflow/*.c
+└── docs/
+    ├── properties.md                 # property language and verdict tables
+    └── report.md                     # report schema + example
 ```
 
 No two source files share a name.
