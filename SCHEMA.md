@@ -1,7 +1,7 @@
 # Per-run JSON schema, version 1
 
 Each file under `reports/<suite>/<mode>/` records one C input and one AE mode.
-See [example-report.json](example-report.json) for a real run.
+The runner writes complete reports to the external results directory.
 
 | Field | Meaning |
 | --- | --- |
