@@ -91,5 +91,22 @@ podman run --rm --pull=never --network=none --name ae-reach-py-evaluation \
   -v "$PWD:/src:ro" -v "$PWD/svf:/svf:ro" \
   -v "$PWD/build:/work/build:rw" -v "$PWD/../ae-reach-eval:/e:ro" \
   -v "$PWD/../ae-reach-results/py:/results:rw" \
-  localhost/svf22-z3:llvm22 python3 /src/run.py "$(git rev-parse ee2157d)"
+  localhost/svf22-z3:llvm22 python3 /src/runner.py "$(git rev-parse 22979d9)"
+```
+
+## A2 verifier and runner refactor
+
+| File | Lines | Responsibility |
+| --- | ---: | --- |
+| `verifier.cpp` | 150 | Runs AE on one module in one mode and emits each check's verdict, reason and interval evidence. |
+| `runner.py` | 176 | Builds the verification tasks, compiles and runs them under the process limits, and aggregates the emitted verdicts into reports and JSONL. |
+
+All 741 runs completed successfully. The 1,104 site records matched the baseline exactly, including all verdicts, reasons and intervals across 81 conformance records and 1,023 SV-COMP records. All 741 program verdicts and all 681 SV-COMP task verdicts matched. The baseline is preserved in `../ae-reach-results/py-before-a2/`.
+
+The measurement commit recorded in the new results is `22979d9113fb4f8db3207cf74a019bef7cf4a94c`.
+
+```console
+$ git -C svf rev-parse HEAD
+a8a0f5181748059c2df2281e5e4ada63ccda3832
+$ git -C svf status --porcelain
 ```

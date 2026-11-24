@@ -24,16 +24,14 @@
       "f.ll"
     ],
     [
-      "/work/build/wrapper/ae-state",
+      "/work/build/wrapper/verifier",
       "-ae-sparsity=dense",
-      "f.ll",
-      "inventory.jsonl",
-      "state.jsonl"
+      "f.ll"
     ]
   ],
   "status": "ok",
   "diagnostic": null,
-  "seconds": 0.05397,
+  "seconds": 0.052099,
   "sites": [
     {
       "column": 5,
@@ -48,12 +46,12 @@
       },
       "kind": "verifier_assert",
       "line": 4,
-      "verdict": "safe",
-      "reason": "ae-condition-true"
+      "reason": "ae-condition-true",
+      "verdict": "safe"
     }
   ],
   "schema_version": 1,
-  "tool_commit": "ee2157d459189ca4132747c19bb60dc9cfef8210",
+  "tool_commit": "22979d9113fb4f8db3207cf74a019bef7cf4a94c",
   "svf_commit": "a8a0f5181748059c2df2281e5e4ada63ccda3832",
   "suite": "cases",
   "task": "c01_holds",
