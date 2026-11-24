@@ -1,4 +1,4 @@
-"""Build the extractor and measure SVF AE on the read-only evaluation kit."""
+"""Build the verifier and run it on the read-only evaluation kit."""
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +15,7 @@ SVF_COMMIT = "a8a0f5181748059c2df2281e5e4ada63ccda3832"
 KIT = Path("/e")
 BUILD = Path("/work/build")
 LLVM = Path("/opt/llvm/bin")
-EXTRACTOR = BUILD / "wrapper/ae-state"
+VERIFIER = BUILD / "wrapper/verifier"
 LIMIT = 120
 MEMORY = 4 * 1024**3
 
@@ -51,29 +51,12 @@ def write_lines(path, rows):
             print(json.dumps(row, allow_nan=False), file=output)
 
 
-def decide(site):
-    if not site["has_state"]:
-        return "unknown", "ae-no-state"
-    if site["kind"] in ("verifier_unreachable", "reach_error"):
-        return "unknown", "ae-reachable"
-    intervals = site["intervals"]
-    condition = intervals["condition"]
-    if condition == [0, 0]:
-        return "unknown", "ae-must-fail-if-reached"
-    if condition == [1, 1]:
-        if site["kind"] != "verifier_eq":
-            return "safe", "ae-condition-true"
-        lhs, rhs = intervals["lhs"], intervals["rhs"]
-        if lhs and lhs == rhs and isinstance(lhs[0], int) and lhs[0] == lhs[1]:
-            return "safe", "ae-condition-true"
-    return "unknown", "ae-condition-unknown"
-
-
-def run_process(command, directory, deadline):
+def run_process(command, directory, deadline, stdout=None):
     with tempfile.TemporaryFile() as log:
         process = subprocess.Popen(
             ["prlimit", f"--as={MEMORY}:{MEMORY}", "--", *command],
-            cwd=directory, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+            cwd=directory, stdout=log if stdout is None else stdout, stderr=log,
+            start_new_session=True,
         )
         try:
             code = process.wait(timeout=max(0, deadline - time.monotonic()))
@@ -88,38 +71,34 @@ def run_process(command, directory, deadline):
                 f"Exit status {code}\n" + log.read().decode(errors="replace"))
 
 
-def measure(source, mode):
+def measure(source, mode, expected_lines):
     start = time.monotonic()
     commands = [
         [str(LLVM / "clang"), "-g", "-S", "-c", "-emit-llvm", "-Xclang",
          "-disable-O0-optnone", "-fno-discard-value-names", "-I/e/include",
          str(source), "-o", "f.ll"],
         [str(LLVM / "opt"), "-S", "-p=mem2reg", "f.ll", "-o", "f.ll"],
-        [str(EXTRACTOR), f"-ae-sparsity={mode}", "f.ll", "inventory.jsonl", "state.jsonl"],
+        [str(VERIFIER), f"-ae-sparsity={mode}", "f.ll"],
     ]
     status, diagnostic, sites = "ok", None, []
     with tempfile.TemporaryDirectory(prefix="ae-reach-py-") as directory:
         try:
-            for command in commands:
+            for command in commands[:-1]:
                 status, diagnostic = run_process(command, directory, start + LIMIT)
                 if status != "ok":
                     break
-            inventory_path = Path(directory) / "inventory.jsonl"
             if status == "ok":
-                inventory = read_lines(inventory_path)
-                facts = read_lines(Path(directory) / "state.jsonl")
-                locations = [{key: row[key] for key in entry}
-                             for row, entry in zip(facts, inventory)]
-                if locations != inventory or len(facts) != len(inventory):
-                    raise ValueError("Final observations differ from the site inventory")
-                for site in facts:
-                    verdict, reason = decide(site)
-                    sites.append(dict(site, verdict=verdict, reason=reason))
-            elif inventory_path.exists():
-                inventory = read_lines(inventory_path)
-                sites = [dict(row, has_state=None, intervals={}, verdict="unknown",
-                              reason=f"run-{status}") for row in inventory]
-        except (OSError, ValueError, KeyError) as error:
+                output = Path(directory) / "verdicts"
+                with output.open("wb") as stdout:
+                    status, diagnostic = run_process(commands[-1], directory, start + LIMIT, stdout)
+                if status == "ok":
+                    sites = read_lines(output)
+                    if any(site["verdict"] not in ("safe", "unknown") or not site["reason"]
+                           for site in sites):
+                        raise ValueError("Invalid site verdict from verifier")
+                    if expected_lines is not None and sorted(site["line"] for site in sites) != sorted(expected_lines):
+                        raise ValueError("Verifier site lines differ from the conformance manifest")
+        except (OSError, ValueError, KeyError, TypeError) as error:
             status, diagnostic, sites = "error", str(error), []
     return dict(mode=mode, command=commands, status=status, diagnostic=diagnostic,
                 seconds=round(time.monotonic() - start, 6), sites=sites)
@@ -140,15 +119,8 @@ def evaluate(output, tool_commit, jobs):
 
     def run(job):
         (suite, task, source, lines), mode = job
-        report = measure(source, mode)
+        report = measure(source, mode, lines)
         sites = report["sites"]
-        if lines is not None:
-            for line in sorted(lines - {site["line"] for site in sites}):
-                status = report["status"]
-                reason = "ae-no-state" if status == "ok" else f"run-{status}"
-                sites.append(dict(file=str(source), line=line, column=None, function=None,
-                                  kind=None, has_state=False if status == "ok" else None,
-                                  intervals={}, verdict="unknown", reason=reason))
         verdict = ("safe" if report["status"] == "ok" and all(
             site["verdict"] == "safe" for site in sites) else "unknown")
         report.update(schema_version=1, tool_commit=tool_commit, svf_commit=SVF_COMMIT,
@@ -162,7 +134,13 @@ def evaluate(output, tool_commit, jobs):
         for count, report in enumerate(executor.map(run, runs), 1):
             common = {key: report[key] for key in ("task", "mode")}
             if report["suite"] == "cases":
-                for site in report["sites"]:
+                sites = report["sites"]
+                if report["status"] != "ok":
+                    # The JSONL format requires a row even when verification failed.
+                    sites = [dict(line=entry["line"], verdict="error",
+                                  reason=f'run-{report["status"]}')
+                             for entry in manifest[report["task"]]]
+                for site in sites:
                     site_rows.append(dict(common, line=site["line"], verdict=site["verdict"],
                                           reason=site["reason"], witness=None, depends_on=[]))
             else:

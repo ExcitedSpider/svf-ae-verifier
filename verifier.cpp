@@ -5,7 +5,7 @@
 #include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/Support/JSON.h>
-#include <llvm/Support/FileSystem.h>
+#include <unistd.h>
 
 using namespace SVF;
 using namespace llvm;
@@ -56,26 +56,56 @@ struct Site
     }
 };
 
-int main(int argc, char** argv)
+static StringRef verdictReason(StringRef kind, bool hasState, const json::Object& values)
 {
-    if (argc != 5)
-        return 2;
+    if (!hasState)
+        return "ae-no-state";
+    if (kind == "verifier_unreachable" || kind == "reach_error")
+        return "ae-reachable";
+    const auto& condition = *values.get("condition");
+    if (condition == json::Array{0, 0})
+        return "ae-must-fail-if-reached";
+    if (condition == json::Array{1, 1})
+    {
+        if (kind != "verifier_eq")
+            return "ae-condition-true";
+        const auto* lhs = values.getArray("lhs");
+        if (lhs && (*lhs)[0].getAsInteger() && (*lhs)[0] == (*lhs)[1] &&
+                *values.get("lhs") == *values.get("rhs"))
+            return "ae-condition-true";
+    }
+    return "ae-condition-unknown";
+}
+
+static PAG* prepareAE(char** argv, LLVMModuleSet& modules)
+{
+    // Mirrors svf-llvm/tools/AE/ae.cpp's main() at a8a0f51.
     char constFlag[] = "-model-consts=true";
     char arrayFlag[] = "-model-arrays=true";
     char fieldFlag[] = "-pre-field-sensitive=false";
     char* args[] = {argv[0], argv[1], argv[2], constFlag, arrayFlag, fieldFlag};
-    auto inputs = OptionBase::parseOptions(6, args, "AE state extractor",
+    auto inputs = OptionBase::parseOptions(6, args, "AE reachability verifier",
                                            "[options] <input>");
-    std::error_code error;
-    raw_fd_ostream inventory(argv[3], error, sys::fs::OF_Text);
-    if (error)
+    modules.buildSVFModule(inputs);
+    PAGBuilder builder;
+    auto* pag = builder.build();
+    auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
+    builder.updateCallGraph(andersen->getCallGraph());
+    return pag;
+}
+
+int main(int argc, char** argv)
+{
+    if (argc != 3)
         return 2;
-    raw_fd_ostream observations(argv[4], error, sys::fs::OF_Text);
-    if (error)
+    // Reserve the original stdout for site objects and send SVF's output to stderr.
+    const int output = dup(STDOUT_FILENO);
+    if (output < 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0)
         return 2;
+    raw_fd_ostream observations(output, true);
 
     auto& modules = *LLVMModuleSet::getLLVMModuleSet();
-    modules.buildSVFModule(inputs);
+    auto* pag = prepareAE(argv, modules);
     std::vector<Site> sites;
     for (const auto& function : *modules.getMainLLVMModule())
         for (const auto& instruction : instructions(function))
@@ -88,14 +118,6 @@ int main(int argc, char** argv)
                 name == "__verifier_unreachable" || name == "reach_error")
                 sites.push_back({call, name.starts_with("__") ? name.drop_front(2).str() : name.str()});
         }
-    for (const auto& site : sites)
-        inventory << json::Value(site.location()) << '\n';
-    inventory.close();
-
-    PAGBuilder builder;
-    auto* pag = builder.build();
-    auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
-    builder.updateCallGraph(andersen->getCallGraph());
     auto& ae = AbstractInterpretation::getAEInstance();
     ae.runOnModule();
     for (const auto& site : sites)
@@ -115,6 +137,9 @@ int main(int argc, char** argv)
                         ? interval(ae, modules, *pag, node, site.call->getArgOperand(index))
                         : nullptr;
         }
+        const auto reason = verdictReason(site.kind, hasState, values);
+        row["reason"] = reason;
+        row["verdict"] = reason == "ae-condition-true" ? "safe" : "unknown";
         row["intervals"] = std::move(values);
         observations << json::Value(std::move(row)) << '\n';
     }
