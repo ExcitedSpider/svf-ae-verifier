@@ -6,9 +6,9 @@ Status: draft for review. The proof of concept lives on the `poc` branch; this d
 
 A property verifier built on SVF's abstract execution (AE). AE computes abstract states; the verifier reads AE's **final** state at the nodes a property cares about and decides a verdict from that state alone.
 
-- It is a library plus a command-line tool, usable without any evaluation kit.
+- It is a command-line tool, usable without any evaluation kit. It is not a library: nothing outside this project includes its classes.
 - It uses SVF unmodified, through its public API, so it builds against an installed SVF.
-- Its core is written so that it could later move into SVF as `svf/include/Verifier` + `svf/lib/Verifier`.
+- The code is header-only (`.hpp`) with a single `main.cpp`. No header/source split.
 
 ## Non-goals
 
@@ -52,7 +52,7 @@ The canonical compilation is SVF's usual one: `clang -g -S -emit-llvm -Xclang -d
 | `Verifier` | Runs the selected properties over the ICFG after AE has finished; returns `Result`s. | Do I/O or set up SVF. |
 | `svf-verifier` (tool) | Options, loading the module, the AE setup, running the `Verifier`, writing the **complete** report. | Decide verdicts. |
 
-`include/` and `lib/` are LLVM-free: SVF IR and AE's public API only. LLVM appears only in the tool.
+Every `.hpp` is LLVM-free: SVF IR and AE's public API only. LLVM appears only in `main.cpp`.
 
 ### Interfaces (sketch)
 
@@ -101,7 +101,7 @@ public:
 }
 ```
 
-Adding a property means adding one `Property` subclass and registering its name in the tool. Nothing else changes.
+Adding a property means adding one `Property` subclass and registering its name in `main.cpp`. Nothing else changes.
 
 ### Source locations
 
@@ -126,39 +126,29 @@ The schema is documented in `docs/report.md`, with an example. SVF's own console
 
 ```
 svf-ae-verifier/
-├── CMakeLists.txt                    # find_package(SVF); library + tool + tests
+├── CMakeLists.txt                # find_package(SVF); one executable + tests
 ├── README.md
 ├── DESIGN.md
 ├── include/
-│   ├── verifier.h                    # property language for users' C code (macros, intrinsics, nondet)
-│   └── Verifier/                     # library API, LLVM-free
-│       ├── Verifier.h                # runs properties over the ICFG after AE
-│       ├── Property.h                # Property interface, Site
-│       ├── StateView.h               # read-only queries of AE's final state
-│       ├── Result.h                  # Verdict, SourceLocation, Evidence, Result
-│       └── Properties/
-│           ├── Reachability.h
-│           └── BufferOverflow.h
-├── lib/
-│   └── Verifier/                     # library implementation, LLVM-free
-│       ├── Verifier.cpp
-│       ├── StateView.cpp             # the only file that calls AE
-│       ├── Result.cpp                # includes source-location parsing
-│       └── Properties/
-│           ├── Reachability.cpp      # reach sites + verdict table
-│           └── BufferOverflow.cpp    # overflow sites + verdict table
-├── tools/
-│   └── svf-verifier/
-│       └── main.cpp                  # options, SVF + AE setup, report writing (only place using LLVM)
+│   └── verifier.h                # property language for users' C code (macros, intrinsics, nondet)
+├── src/
+│   ├── main.cpp                  # the only .cpp: options, SVF + AE setup, report writing (only place using LLVM)
+│   ├── Verifier.hpp              # runs properties over the ICFG after AE
+│   ├── Property.hpp              # Property interface, Site
+│   ├── StateView.hpp             # read-only queries of AE's final state; the only file that calls AE
+│   ├── Result.hpp                # Verdict, SourceLocation (+ parsing), Evidence, Result
+│   └── properties/
+│       ├── Reachability.hpp      # reach sites + verdict table
+│       └── BufferOverflow.hpp    # overflow sites + verdict table
 ├── tests/
-│   ├── reach/*.c                     # each file states its expected verdicts
+│   ├── reach/*.c                 # each file states its expected verdicts
 │   └── overflow/*.c
 └── docs/
-    ├── properties.md                 # property language and verdict tables
-    └── report.md                     # report schema + example
+    ├── properties.md             # property language and verdict tables
+    └── report.md                 # report schema + example
 ```
 
-No two source files share a name.
+No two files share a name. `.hpp` files are included only by `main.cpp` and by each other.
 
 ## Build and test
 
