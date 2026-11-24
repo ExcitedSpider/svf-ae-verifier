@@ -4,7 +4,8 @@ find_package(LLVM CONFIG REQUIRED)
 list(PREPEND CMAKE_MODULE_PATH "/svf/cmake/Modules")
 find_package(Z3 REQUIRED)
 include("/work/build/lib/cmake/SVF/SVFTargets.cmake")
-add_library(Verifier STATIC lib/Verifier/Verifier.cpp lib/Verifier/Reachability.cpp)
+add_library(Verifier STATIC lib/Verifier/Verifier.cpp lib/Verifier/Reachability.cpp
+    lib/Verifier/BufferOverflow.cpp)
 target_include_directories(Verifier PUBLIC include)
 target_link_libraries(Verifier PUBLIC SVF::SvfCore)
 

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import tempfile
@@ -16,11 +17,15 @@ KIT = Path("/e")
 BUILD = Path("/work/build")
 LLVM = Path("/opt/llvm/bin")
 VERIFIER = BUILD / "wrapper/verifier"
+STOCK_AE = BUILD / "bin/ae"
+OVERFLOW_TESTS = Path("/tests/test_cases_bc/ae_overflow_tests")
+ALARM_HEADER = re.compile(r"^#+Buffer Overflow \((\d+) found\)#+$", re.MULTILINE)
+ALARM_LOCATION = re.compile(r'"ln": (\d+), "cl": (\d+), "fl": "([^"]*)"')
 LIMIT = 120
 MEMORY = 4 * 1024**3
 
 
-def build():
+def build(property_name="reach"):
     # SVF's build-tree export advertises this generated include directory.
     (BUILD / "include/SVF").mkdir(parents=True, exist_ok=True)
     settings = ["-DCMAKE_BUILD_TYPE=Release", "-DLLVM_DIR=/opt/llvm/lib/cmake/llvm"]
@@ -31,6 +36,8 @@ def build():
          "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", *settings],
         ["cmake", "--build", BUILD / "wrapper", "-j", "8"],
     ]
+    if property_name == "overflow":
+        commands.append(["cmake", "--build", BUILD, "--target", "ae", "-j", "8"])
     for command in commands:
         subprocess.run(command, check=True)
 
@@ -52,11 +59,12 @@ def write_lines(path, rows):
             print(json.dumps(row, allow_nan=False), file=output)
 
 
-def run_process(command, directory, deadline, stdout=None):
+def run_process(command, directory, deadline, stdout=None, combined=False):
     with tempfile.TemporaryFile() as log:
         process = subprocess.Popen(
             ["prlimit", f"--as={MEMORY}:{MEMORY}", "--", *command],
-            cwd=directory, stdout=log if stdout is None else stdout, stderr=log,
+            cwd=directory, stdout=log if stdout is None else stdout,
+            stderr=subprocess.STDOUT if combined else log,
             start_new_session=True,
         )
         try:
@@ -72,7 +80,7 @@ def run_process(command, directory, deadline, stdout=None):
                 f"Exit status {code}\n" + log.read().decode(errors="replace"))
 
 
-def measure(source, mode, expected_lines):
+def measure(source, mode, expected_lines, property_name="reach"):
     start = time.monotonic()
     commands = [
         [str(LLVM / "clang"), "-g", "-S", "-c", "-emit-llvm", "-Xclang",
@@ -80,6 +88,9 @@ def measure(source, mode, expected_lines):
          str(source), "-o", "f.ll"],
         [str(LLVM / "opt"), "-S", "-p=mem2reg", "f.ll", "-o", "f.ll"],
         [str(VERIFIER), f"-ae-sparsity={mode}", "f.ll"],
+    ] if property_name == "reach" else [
+        [str(VERIFIER), "-property=overflow", f"-ae-sparsity={mode}",
+         "-field-limit=1024", str(source)],
     ]
     status, diagnostic, sites = "ok", None, []
     with tempfile.TemporaryDirectory(prefix="ae-reach-py-") as directory:
@@ -103,6 +114,77 @@ def measure(source, mode, expected_lines):
             status, diagnostic, sites = "error", str(error), []
     return dict(mode=mode, command=commands, status=status, diagnostic=diagnostic,
                 seconds=round(time.monotonic() - start, 6), sites=sites)
+
+
+def stock_overflow(bitcode, mode):
+    command = [str(STOCK_AE)]
+    if mode != "dense":
+        command.append(f"-ae-sparsity={mode}")
+    command.extend(["-overflow", "-field-limit=1024", str(bitcode)])
+    start = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="ae-reach-stock-") as directory:
+        log = Path(directory) / "ae.log"
+        try:
+            with log.open("wb") as output:
+                status, diagnostic = run_process(command, directory, start + LIMIT,
+                                                 output, combined=True)
+            text = log.read_text(errors="replace")
+        except OSError as error:
+            status, diagnostic, text = "error", str(error), ""
+    if status != "ok":
+        diagnostic = "\n".join(filter(None, (diagnostic, text[-4096:])))
+    header = ALARM_HEADER.search(text)
+    alarms = []
+    if header:
+        blocks = [block.strip() for block in re.split(r"^-{20,}$", text[header.end():],
+                                                     flags=re.MULTILINE) if block.strip()]
+        for block in blocks[:int(header[1])]:
+            matches = list(ALARM_LOCATION.finditer(block))
+            if matches:
+                line, column, file = matches[-1].groups()
+                alarms.append(dict(file=file, line=int(line), column=int(column)))
+            else:
+                alarms.append(dict(location=None, diagnostic=block))
+    return dict(command=command, status=status, diagnostic=diagnostic, alarms=alarms,
+                alarm_count=int(header[1]) if header else 0,
+                seconds=round(time.monotonic() - start, 6))
+
+
+def evaluate_overflow(output, tool_commit, jobs):
+    tests = sorted(path for path in OVERFLOW_TESTS.glob("*.c.bc")
+                   if not path.name.endswith("_no-main.c.bc"))
+    if not tests:
+        raise ValueError(f"No Test-Suite bitcode found under {OVERFLOW_TESTS}")
+
+    def run(job):
+        bitcode, mode = job
+        test = bitcode.name.removesuffix(".c.bc")
+        report = measure(bitcode, mode, None, "overflow")
+        verdict = ("safe" if report["status"] == "ok" and all(
+            site["verdict"] == "safe" for site in report["sites"]) else "unknown")
+        report.update(schema_version=1, tool_commit=tool_commit, svf_commit=SVF_COMMIT,
+                      suite="overflow", property="overflow", task=test, program=str(bitcode),
+                      verdict=verdict, stock_ae=stock_overflow(bitcode, mode))
+        write_json(output / "reports" / mode / f"{test}.json", report)
+        return report
+
+    rows = []
+    tasks = [(test, mode) for test in tests for mode in MODES]
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        for count, report in enumerate(executor.map(run, tasks), 1):
+            for site in report["sites"]:
+                row = {field: site[field] for field in ("line", "kind", "verdict", "reason")}
+                row.update(test=report["task"], mode=report["mode"])
+                if "expected" in site:
+                    row["expected"] = site["expected"]
+                rows.append(row)
+            if count % 50 == 0 or count == len(tasks):
+                print(f"Completed {count}/{len(tasks)} overflow pairs", flush=True)
+    write_lines(output / "sites.jsonl", rows)
+    (output / "README").write_text(
+        f"Tool commit {tool_commit}\nSVF commit {SVF_COMMIT}\n"
+        f"{len(tasks)} per-run JSON reports in reports/.\n"
+    )
 
 
 def evaluate(output, tool_commit, jobs):
@@ -167,10 +249,14 @@ def main():
     parser.add_argument("--jobs", type=int, choices=range(1, 9), default=8)
     parser.add_argument("--output", type=Path, default=Path("/results"))
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--property", choices=("reach", "overflow"), default="reach")
     args = parser.parse_args()
     if not args.skip_build:
-        build()
-    evaluate(args.output, args.tool_commit, args.jobs)
+        build(args.property)
+    if args.property == "overflow":
+        evaluate_overflow(args.output, args.tool_commit, args.jobs)
+    else:
+        evaluate(args.output, args.tool_commit, args.jobs)
 
 
 if __name__ == "__main__":

@@ -17,10 +17,10 @@ static unsigned locationNumber(std::string_view location, std::string_view field
     return value;
 }
 
-void Verifier::setLocation(const CallICFGNode& call, SiteResult& result)
+void Verifier::setLocation(const ICFGNode& node, SiteResult& result)
 {
     // SVF stores the source location as a string containing ln, cl and fl.
-    const auto location = call.getSourceLoc();
+    const auto location = node.getSourceLoc();
     result.line = locationNumber(location, "\"ln\": ");
     result.column = locationNumber(location, "\"cl\": ");
     const std::string_view fileField = "\"fl\": \"";
@@ -32,14 +32,21 @@ void Verifier::setLocation(const CallICFGNode& call, SiteResult& result)
         if (end >= filename)
             result.file = location.substr(filename, end - filename);
     }
-    result.function = call.getCaller()->getName();
+    if (const auto* function = node.getFun())
+        result.function = function->getName();
 }
 
-std::vector<SiteResult> Verifier::collect(const ICFG& icfg, AbstractInterpretation& ae)
+std::vector<SiteResult> Verifier::collect(const ICFG& icfg, AbstractInterpretation& ae,
+        VerificationProperty property)
 {
     std::vector<SiteResult> results;
     for (const auto& entry : icfg)
     {
+        if (property == VerificationProperty::BufferOverflow)
+        {
+            checkAccesses(*entry.second, ae, results);
+            continue;
+        }
         if (const auto* call = SVFUtil::dyn_cast<CallICFGNode>(entry.second))
         {
             if (auto result = check(*call, ae))
