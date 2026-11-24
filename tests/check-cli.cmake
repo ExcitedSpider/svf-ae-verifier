@@ -4,6 +4,8 @@ compile_case()
 run_verifier(2 error -property=invalid "${work}/input.ll")
 run_verifier(2 error -property=reach -unknown-option "${work}/input.ll")
 run_verifier(2 error -property=reach -ae-sparsity=invalid "${work}/input.ll")
+run_verifier(2 error -property=reach "${work}/input.ll" -o)
+run_verifier(2 error -property=reach "${work}/input.ll" -o "${work}/input.ll")
 run_verifier(1 error -property=reach "${work}/missing.ll")
 run_verifier(1 error -property=reach "${case}")
 

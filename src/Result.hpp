@@ -4,7 +4,10 @@
 #include "Graphs/ICFGNode.h"
 #include <charconv>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace SVF {
 

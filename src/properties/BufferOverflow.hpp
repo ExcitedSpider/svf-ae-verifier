@@ -54,11 +54,13 @@ public:
             return result;
 
         bool missing = false;
+        bool hasObject = false;
         bool allIn = true;
         bool someOut = false;
         for (const auto address : *targets)
         {
             const auto* base = state.baseObject(address, site.node);
+            hasObject |= base != nullptr;
             const auto offset = state.byteOffset(pointer, address, site.node);
             const auto size = state.byteSize(base);
             const auto target = std::to_string(address);
@@ -74,11 +76,11 @@ public:
             allIn &= offset->lb().geq(zero) && end.ub().leq(size->lb());
             someOut |= offset->ub() < zero || end.lb() > size->ub();
         }
+        if (!hasObject)
+            return result;
         if (someOut)
             result.reason = "ae-out-of-bounds-if-reached";
-        else if (missing)
-            result.reason = "ae-bounds-unavailable";
-        else if (allIn)
+        else if (!missing && allIn)
         {
             result.verdict = Verdict::Proved;
             result.reason = "ae-in-bounds";

@@ -9,6 +9,7 @@ int main(int argc, char **argv)
     verifier_eq(12, 12);
     verifier_eq(12, 13);
     __verifier_assert(1, 42);
+    __verifier_eq(1, argc, argc, __LINE__);
     return 0;
 }
 
@@ -18,3 +19,4 @@ int main(int argc, char **argv)
 // EXPECT: line 9 verifier_eq proved ae-condition-true
 // EXPECT: line 10 verifier_eq unproved ae-must-fail-if-reached
 // EXPECT: line 42 verifier_assert proved ae-condition-true
+// EXPECT: line 12 verifier_eq unproved ae-condition-unknown

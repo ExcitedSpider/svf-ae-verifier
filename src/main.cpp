@@ -18,7 +18,9 @@
 namespace {
 
 using namespace SVF;
-using namespace llvm::json;
+using llvm::json::Array;
+using llvm::json::Object;
+using JsonValue = llvm::json::Value;
 
 Option<std::string> propertyOption("property", "Comma-separated properties: reach,overflow", "");
 Option<std::string> outputOption("o", "Write the report to this path instead of stdout", "");
@@ -37,7 +39,7 @@ const char* verdictName(Verdict verdict)
     return verdict == Verdict::Proved ? "proved" : "unproved";
 }
 
-Value bound(const BoundedInt& value)
+JsonValue bound(const BoundedInt& value)
 {
     if (value.is_minus_infinity())
         return "-inf";
@@ -46,7 +48,7 @@ Value bound(const BoundedInt& value)
     return value.getNumeral();
 }
 
-Value intervalJson(const std::optional<IntervalValue>& interval)
+JsonValue intervalJson(const std::optional<IntervalValue>& interval)
 {
     if (!interval)
         return nullptr;
@@ -85,7 +87,7 @@ bool writeReport(Object report, const std::string& path = "")
 {
     using namespace std::chrono;
     report["time_unix_ms"] = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    const auto json = llvm::formatv("{0:2}\n", Value(std::move(report))).str();
+    const auto json = llvm::formatv("{0:2}\n", JsonValue(std::move(report))).str();
     if (path.empty() || path == "-")
         return static_cast<bool>(std::cout << json << std::flush);
     std::ofstream output(path);
@@ -124,7 +126,7 @@ void reportOnSvfExit()
 std::vector<PropertyResults> analyze(const std::vector<std::string>& inputs, const Verifier& verifier)
 {
     // Mirrors svf-llvm/tools/AE/ae.cpp at the pinned commit: the same modeling
-    // flags (appended in main), module setup, Andersen and call-graph update.
+    // flags (set in main), module setup, Andersen and call-graph update.
     if (Options::ExtAPIPath().empty() && !ExtAPI::setExtBcPath(VERIFIER_EXTAPI_PATH))
         throw std::runtime_error("Could not locate installed SVF extapi.bc");
     LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(inputs);
@@ -132,11 +134,8 @@ std::vector<PropertyResults> analyze(const std::vector<std::string>& inputs, con
     auto* pag = builder.build();
     auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
-    const auto state = StateView::analyze(*pag);
-    auto results = verifier.run(*pag->getICFG(), state);
-    AndersenWaveDiff::releaseAndersenWaveDiff();
-    LLVMModuleSet::releaseLLVMModuleSet();
-    return results;
+    const auto state = runAbstractExecution(*pag);
+    return verifier.run(*pag->getICFG(), state);
 }
 
 bool loadable(const std::string& input, const char* program)
@@ -147,6 +146,18 @@ bool loadable(const std::string& input, const char* program)
         return true;
     diagnostic.print(program, llvm::errs());
     return false;
+}
+
+bool sameFile(const std::string& input, const std::string& output)
+{
+    std::error_code error;
+    if (std::filesystem::equivalent(input, output, error))
+        return true;
+    const auto inputPath = std::filesystem::weakly_canonical(input, error);
+    if (error)
+        return false;
+    const auto outputPath = std::filesystem::weakly_canonical(output, error);
+    return !error && inputPath == outputPath;
 }
 
 } // namespace
@@ -170,11 +181,11 @@ int main(int argc, char** argv)
                   {"svf_commit", VERIFIER_SVF_COMMIT}, {"command_line", std::move(command)},
                   {"ae_mode", nullptr}, {"properties", Object{}}, {"sites", Array{}}};
 
-    std::vector<char*> args(argv, argv + argc);
     char constFlag[] = "-model-consts=true";
     char arrayFlag[] = "-model-arrays=true";
     char fieldFlag[] = "-pre-field-sensitive=false";
-    args.insert(args.end(), {constFlag, arrayFlag, fieldFlag});
+    std::vector<char*> args{argv[0], constFlag, arrayFlag, fieldFlag};
+    args.insert(args.end(), argv + 1, argv + argc);
     reportBuffer = std::cout.rdbuf();
     std::atexit(reportOnSvfExit);
     pendingReport = &report;
@@ -214,14 +225,9 @@ int main(int argc, char** argv)
     }
     if (inputs.size() != 1)
         return errorReport(std::move(report), "Expected exactly one input module", 2);
-    if (!outputOption().empty() && outputOption() != "-")
-    {
-        std::error_code error;
-        if (std::filesystem::equivalent(inputs.front(), outputOption(), error))
-        {
-            return errorReport(std::move(report), "Input and report refer to the same file", 2);
-        }
-    }
+    const auto output = outputOption();
+    if (!output.empty() && output != "-" && sameFile(inputs.front(), output))
+        return errorReport(std::move(report), "Input and report refer to the same file", 2);
     if (!loadable(inputs.front(), argv[0]))
         return errorReport(std::move(report), "Could not load input", 1);
 
@@ -231,6 +237,8 @@ int main(int argc, char** argv)
         pendingExitCode = 1;
         pendingReport = &report;
         addResults(report, analyze(inputs, verifier));
+        AndersenWaveDiff::releaseAndersenWaveDiff();
+        LLVMModuleSet::releaseLLVMModuleSet();
         pendingReport = nullptr;
     }
     catch (const std::exception& error)
@@ -239,5 +247,5 @@ int main(int argc, char** argv)
         return errorReport(std::move(report), error.what(), 1);
     }
     report["status"] = "ok";
-    return writeReport(std::move(report), outputOption()) ? 0 : 1;
+    return writeReport(std::move(report), output) ? 0 : 1;
 }

@@ -3,11 +3,15 @@ project(svf-ae-verifier VERSION 0.1.0 LANGUAGES C CXX)
 
 set(SVF_COMMIT a8a0f5181748059c2df2281e5e4ada63ccda3832)
 find_package(SVF 3.4 CONFIG REQUIRED)
-find_package(Git QUIET)
-if(Git_FOUND)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        OUTPUT_VARIABLE verifier_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+set(VERIFIER_GIT_COMMIT "" CACHE STRING "Source commit for a build without Git metadata")
+set(verifier_commit "${VERIFIER_GIT_COMMIT}")
+if(NOT verifier_commit)
+    find_package(Git QUIET)
+    if(Git_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE verifier_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
 endif()
 if(NOT verifier_commit)
     set(verifier_commit unknown)

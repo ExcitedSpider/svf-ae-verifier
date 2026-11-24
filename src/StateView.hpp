@@ -10,14 +10,6 @@ class StateView {
 public:
     explicit StateView(AbstractInterpretation& ae, const PAG& pag) : ae(ae), pag(pag) {}
 
-    // AE owns a process-wide singleton. Set the mode before starting it.
-    static StateView analyze(const PAG& pag)
-    {
-        auto& ae = AbstractInterpretation::getAEInstance();
-        ae.runOnModule();
-        return StateView(ae, pag);
-    }
-
     bool reached(const ICFGNode* node) const
     {
         return node && ae.hasAbsState(node);
@@ -56,15 +48,16 @@ public:
                                            const ICFGNode* node) const
     {
         const auto id = objectId(address, node);
-        if (!id || pointer->getInEdges().size() != 1)
+        if (!id)
             return std::nullopt;
-        if (directObject(pointer) == pag.getSVFVar(*id))
+        const auto* defStmt = definition(pointer);
+        if (directObject(defStmt) == pag.getSVFVar(*id))
             return IntervalValue(0);
-        if (!pointer->hasIncomingEdges(SVFStmt::Gep))
+        const auto* gep = defStmt ? SVFUtil::dyn_cast<GepStmt>(defStmt) : nullptr;
+        if (!gep)
             return std::nullopt;
 
-        const auto* gep = SVFUtil::cast<GepStmt>(*pointer->getIncomingEdgesBegin(SVFStmt::Gep));
-        const auto* base = directObject(gep->getRHSVar());
+        const auto* base = directObject(definition(gep->getRHSVar()));
         const auto* def = gep->getICFGNode();
         if (!base || base != pag.getBaseObject(*id) || !reached(def) || !gep->isConstantOffset())
             return std::nullopt;
@@ -72,8 +65,15 @@ public:
         if (!source || source->size() != 1 ||
                 objectId(*source->begin(), def) != base->getId())
             return std::nullopt;
-        // Dynamic offsets may be clamped or have their negative range dropped.
-        return ae.getGepByteOffset(gep);
+        for (const auto& step : gep->getOffsetVarAndGepTypePairVec())
+            if (!step.second || !SVFUtil::isa<SVFPointerType, SVFArrayType>(step.second))
+                return std::nullopt;
+        // Dynamic offsets may lose negative ranges. Even the constant helper
+        // saturates at the field limit and does not account for struct padding.
+        const auto offset = ae.getGepByteOffset(gep);
+        if (offset.ub().geq(BoundedInt(Options::MaxFieldLimit())))
+            return std::nullopt;
+        return offset;
     }
 
 private:
@@ -96,16 +96,37 @@ private:
         return id;
     }
 
-    static const BaseObjVar* directObject(const ValVar* pointer)
+    static const SVFStmt* definition(const ValVar* pointer)
     {
-        if (pointer->getInEdges().size() != 1 || !pointer->hasIncomingEdges(SVFStmt::Addr))
-            return nullptr;
-        const auto* addr = SVFUtil::cast<AddrStmt>(*pointer->getIncomingEdgesBegin(SVFStmt::Addr));
-        return SVFUtil::dyn_cast<BaseObjVar>(addr->getRHSVar());
+        const SVFStmt* result = nullptr;
+        for (const auto* edge : pointer->getInEdges())
+        {
+            // A store's destination edge uses the pointer as an address.
+            if (SVFUtil::isa<StoreStmt>(edge))
+                continue;
+            if (result)
+                return nullptr;
+            result = edge;
+        }
+        return result;
+    }
+
+    static const BaseObjVar* directObject(const SVFStmt* def)
+    {
+        const auto* addr = def ? SVFUtil::dyn_cast<AddrStmt>(def) : nullptr;
+        return addr ? SVFUtil::dyn_cast<BaseObjVar>(addr->getRHSVar()) : nullptr;
     }
 
     AbstractInterpretation& ae;
     const PAG& pag;
 };
+
+// AE owns a process-wide singleton. Configure its mode before starting it.
+inline StateView runAbstractExecution(const PAG& pag)
+{
+    auto& ae = AbstractInterpretation::getAEInstance();
+    ae.runOnModule();
+    return StateView(ae, pag);
+}
 
 } // namespace SVF

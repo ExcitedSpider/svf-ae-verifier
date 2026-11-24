@@ -34,10 +34,10 @@ _Bool verifier_nondet_bool(void);
 
 /* Evaluate each operand once and compare using the usual C conversions. */
 #define verifier_eq(lhs, rhs) do { \
-    SVF_VERIFIER_AUTO svf_verifier_lhs = (lhs); \
-    SVF_VERIFIER_AUTO svf_verifier_rhs = (rhs); \
-    __verifier_eq(svf_verifier_lhs == svf_verifier_rhs, \
-                  (long long)svf_verifier_lhs, (long long)svf_verifier_rhs, __LINE__); \
+    SVF_VERIFIER_AUTO __svf_verifier_lhs = (lhs); \
+    SVF_VERIFIER_AUTO __svf_verifier_rhs = (rhs); \
+    __verifier_eq(__svf_verifier_lhs == __svf_verifier_rhs, \
+                  (long long)__svf_verifier_lhs, (long long)__svf_verifier_rhs, __LINE__); \
 } while (0)
 
 #endif

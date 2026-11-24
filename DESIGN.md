@@ -1,6 +1,6 @@
 # svf-ae-verifier: design
 
-Status: draft for review. The proof of concept lives on the `poc` branch; this document replaces its structure.
+The proof of concept lives on the `poc` branch.
 
 ## Goal
 
@@ -20,12 +20,14 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 
 | Property | Sites | Proved when |
 |---|---|---|
-| `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same single value); for `unreachable` / `reach_error`, never (proving it would need a coverage argument, which is out of scope) |
-| `overflow` | loads and stores through a pointer | for every object the pointer may target, `[offset, offset + width)` lies within `[0, size)` |
+| `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same finite singleton). Error sites always remain unproved. |
+| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | for every object the pointer may target, `[offset, offset + width)` lies within `[0, size)` |
 
 Every other situation is `unproved`, with a reason saying what AE saw (for example `ae-must-fail-if-reached` when the condition is `[0, 0]`). Verdicts are `proved` and `unproved` only. `Proved` is sound with respect to AE: every execution AE models satisfies the check. `Unproved` claims nothing; in particular it is not a violation. Reporting violations (`unsafe`) would need evidence beyond AE's state, such as a replayed witness, and is out of scope.
 
 The property language for `reach` is shipped with the tool as `include/verifier.h` (macros, intrinsics, nondet functions, `verifier_assume`) and specified in `docs/properties.md`. Users include it; nothing depends on an external kit.
+
+Pinned SVF has no `__verifier_assume` model, so the shipped macro branches to `abort()` when its condition is false. The reason tables are in [the property reference](docs/properties.md).
 
 The canonical compilation is SVF's usual one: `clang -g -S -emit-llvm -Xclang -disable-O0-optnone -fno-discard-value-names`, then `opt -p=mem2reg`.
 
@@ -45,11 +47,11 @@ The canonical compilation is SVF's usual one: `clang -g -S -emit-llvm -Xclang -d
 
 | Module | Owns | Does not |
 |---|---|---|
-| `StateView` | The only code that talks to AE. Read-only, guarded queries of the final state: whether a node was reached, a value's interval, a pointer's address set, an object's byte size. Handles the sparse-mode def-site lookup. | Call any AE function that changes the state or the trace. |
+| `StateView` | AE startup and guarded queries of the final state. Queries cover whether a node was reached, a value's interval, a pointer's address set, and object bounds. The value queries use SVF's virtual def-site lookup in the sparse modes. | Change the final state or trace during a query. |
 | `Property` | An interface: which ICFG nodes are sites, and how one site is decided from a `StateView`. | Know about other properties, files, options or JSON. |
 | `Reachability`, `BufferOverflow` | One file each: site discovery and the verdict table for that property. | Contain evaluation oracles (`SAFE_BUFACCESS`, expected labels, and so on). |
 | `Result` | A site's location, kind, verdict, reason, and evidence. | Hold property-specific fields. |
-| `Verifier` | Runs the selected properties over the ICFG after AE has finished; returns `Result`s. | Do I/O or set up SVF. |
+| `Verifier` | Runs the selected properties over the ICFG after AE has finished and groups `Result`s by property, including selected properties with no sites. | Do I/O or set up SVF. |
 | `svf-verifier` (tool) | Options, loading the module, the AE setup, running the `Verifier`, writing the **complete** report. | Decide verdicts. |
 
 Every `.hpp` is LLVM-free: SVF IR and AE's public API only. LLVM appears only in `main.cpp`.
@@ -77,12 +79,17 @@ struct Result {
 
 class StateView {
 public:
-    explicit StateView(AbstractInterpretation& ae);
+    explicit StateView(AbstractInterpretation& ae, const PAG& pag);
     bool reached(const ICFGNode* node) const;
     std::optional<IntervalValue> interval(const ValVar* var, const ICFGNode* node) const;
     std::optional<AddressValue> addresses(const ValVar* var, const ICFGNode* node) const;
+    const BaseObjVar* baseObject(u32_t address, const ICFGNode* node) const;
     std::optional<IntervalValue> byteSize(const BaseObjVar* obj) const;
+    std::optional<IntervalValue> byteOffset(const ValVar* pointer, u32_t address,
+                                            const ICFGNode* node) const;
 };
+
+StateView runAbstractExecution(const PAG& pag); // starts the process-wide AE singleton once
 
 class Property {
 public:
@@ -92,10 +99,12 @@ public:
     virtual Result check(const Site& site, const StateView& state) const = 0;
 };
 
+struct PropertyResults { std::string name; std::vector<Result> sites; };
+
 class Verifier {
 public:
     void add(std::unique_ptr<Property> property);
-    std::vector<Result> run(const ICFG& icfg, AbstractInterpretation& ae) const;  // after runOnModule()
+    std::vector<PropertyResults> run(const ICFG& icfg, const StateView& state) const;
 };
 
 }
@@ -120,7 +129,7 @@ The tool writes one report per run (stdout by default). It is complete on its ow
 - per site: property, kind, location, verdict, reason, evidence (named intervals);
 - per property: the program verdict (`proved` if every site is `proved`, otherwise `unproved`).
 
-The schema is documented in `docs/report.md`, with an example. SVF's own console output goes to stderr, so the report stream stays clean without redirecting file descriptors.
+The schema is documented in `docs/report.md`, with an example. SVF's own console output goes to stderr via its C++ stream. Bad-usage reports go to stdout because the output option may be invalid or may alias an input. Standalone help prints usage.
 
 ### Exit status
 
@@ -174,7 +183,8 @@ From the PoC (`poc` branch, `REPORT.md`):
 
 - **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unproved`.
 - **`getGepObjAddrs` is not read-only.** It creates objects and changes the trace when called after the analysis, so `StateView` cannot use it.
-- **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges.
+- **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier uses offsets only for direct base addresses and single constant GEPs with supported type steps and offsets below the limit.
+- **Dynamic extents.** The allocation-size helper also saturates at the field limit. The verifier uses the fixed byte size of non-heap objects and leaves other extents unknown.
 - **Source locations** are strings only.
 
 These are the candidates for a small upstream API addition.
