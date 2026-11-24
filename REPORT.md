@@ -168,3 +168,80 @@ ee2157d Construct LLVM 22 JSON objects explicitly
 ```
 
 The published tree excludes generated reports. The preserved history contains the original conformance example report.
+
+## A3 buffer overflow
+
+All 264 verifier runs and all 264 stock AE runs succeeded on 88 supplied bitcode tests across three modes. The runs used Test-Suite commit `27bd85e7c4be8e1685e2a8358c0e4ecf956b9afa` and the primary CTest flags, including `-field-limit=1024`.
+
+### Oracle labels
+
+| Mode | SAFE correct safe | SAFE unknown | UNSAFE false safe | UNSAFE unknown |
+| --- | ---: | ---: | ---: | ---: |
+| Dense | 146 | 30 | 4 | 79 |
+| Semi-sparse | 146 | 30 | 4 | 79 |
+| Sparse | 146 | 30 | 4 | 79 |
+
+Three char-alloca copy cases supply 10 bytes for a 10-byte object, and `ExtAPI_strcat_04:10` supplies 15 bytes for a 15-byte object. The unsafe labels reflect the preceding string or copy operation, while the literal oracle widths fit at offset zero. The reports preserve the bounds verdicts and count them as false safes under the supplied labels.
+
+### Load and store reasons
+
+| Reason | Dense | Semi-sparse | Sparse |
+| --- | ---: | ---: | ---: |
+| `ae-in-bounds` | 1,671 | 1,671 | 1,671 |
+| `ae-out-of-bounds-if-reached` | 0 | 0 | 0 |
+| `ae-bounds-unknown` | 5 | 5 | 5 |
+| `ae-no-state` | 0 | 0 | 0 |
+| `ae-object-unknown` | 4,922 | 4,922 | 4,922 |
+
+The verifier checks SVF load and store statements and labelled oracle calls. Library calls such as `memcpy`, `strcpy` and `strcat` are outside its access model.
+
+### Stock AE comparison
+
+| Mode | Safe with stock alarm | Unknown without stock alarm | Safe without stock alarm | Unknown with stock alarm | Stock alarms without an access match | Accesses without source coordinates |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dense | 29 | 273 | 1,378 | 7 | 26 of 58 | 4,911 |
+| Semi-sparse | 29 | 273 | 1,378 | 7 | 26 of 58 | 4,911 |
+| Sparse | 29 | 273 | 1,378 | 7 | 28 of 60 | 4,911 |
+
+The comparison matches exact file, line and column within each run. Stock AE commonly reports on a GEP or an external call, so a shared coordinate can refer to different IR statements.
+
+### Public AE evidence and gaps
+
+| Fact | Public API at the pinned commit |
+| --- | --- |
+| Final pointer and integer values | `hasAbsState` and guarded `hasAbsValue` and `getAbsValue` read the retained trace. Sparse value lookups use the definition node. A missing value, null address or black-hole address leaves the object unresolved. |
+| Base-relative bytes | `getGepByteOffset` reads a single GEP's operands at its node. For `p = buf + i; q = p + j`, the second offset is relative to `p`. The final address set exposes field-object IDs, and collapsed fields can represent several offsets. Interior pointers read back from memory have the same gap. |
+| Read-only address lookup | `getGepObjAddrs` computes forward targets and inserts state and field objects. For a pointer into an array, calling it after AE would alter the trace. Collection reads existing addresses. |
+| Dynamic offset precision | The GEP helper clamps dynamic index terms to the field limit and clamps negative variable terms to zero. For an index spanning negative and positive values, the public helper's interval can lose the negative portion. |
+| Object extent | `getAllocaInstByteSize` uses exact metadata for a constant stack or global object. Its dynamic path reads the defining state but caps bounds and uses an element width of one. For `int a[n]`, collection uses the alloca element count and SVF type width. Heap extents use the final size arguments for `malloc`, `calloc` and `realloc`. An opaque allocator returning a pointer has no readable byte extent. |
+| Access width | Load and store widths come from the SVF type of the value being transferred, and oracle widths come from AE. A synthetic statement with no usable type width has no width evidence. |
+
+Collection uses a single GEP offset when the final input points directly to identifiable base objects and leaves missing base-relative offsets unknown.
+
+### Verification and reproduction
+
+| File | Lines | Change |
+| --- | ---: | --- |
+| `lib/Verifier/BufferOverflow.cpp` | 244 | Discovers accesses, reads final facts and applies the bounds table. |
+| `tools/verifier/verifier.cpp` | 107 | Adds property selection, passes AE flags through and serializes the evidence. |
+| `runner/runner.py` | 263 | Runs Test-Suite bitcode and stock AE under the process limits and writes their reports. |
+
+The reachability regression matched A2 across 741 runs, 1,104 complete site records, and all 681 task verdicts. The overflow results contain 20,571 site rows. The library built without LLVM include paths in all three compilation commands, and `grep -rn llvm include/Verifier lib/Verifier` returned no matches.
+
+Measurement commit `8bd93c11f50156736285664cfe2ecf82912c9876`.
+
+```console
+$ git -C svf rev-parse HEAD
+a8a0f5181748059c2df2281e5e4ada63ccda3832
+$ git -C svf status --porcelain
+```
+
+Run from the repo root with `../SVF/Test-Suite` at the recorded revision.
+
+```sh
+mkdir -p build ../ae-reach-results/overflow &&
+podman run --rm --pull=never --network=none --name ae-reach-py-overflow-evaluation \
+  -v "$PWD:/src:ro" -v "$PWD/svf:/svf:ro" -v "$PWD/build:/work/build:rw" \
+  -v "$PWD/../SVF/Test-Suite:/tests:ro" -v "$PWD/../ae-reach-results/overflow:/results:rw" \
+  localhost/svf22-z3:llvm22 python3 /src/runner/runner.py "$(git rev-parse 8bd93c1)" --property overflow
+```

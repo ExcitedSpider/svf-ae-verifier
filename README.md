@@ -27,3 +27,5 @@ podman run --rm --pull=never --network=none \
 ```
 
 See [REPORT.md](REPORT.md) for the full evaluation command and [SCHEMA.md](SCHEMA.md) for the report format.
+
+For buffer accesses, select `-property=overflow` on the verifier or `--property overflow` on the runner. The [A3 report](REPORT.md#a3-buffer-overflow) gives the Test-Suite command, the stock AE comparison and the limits of the final-state evidence.

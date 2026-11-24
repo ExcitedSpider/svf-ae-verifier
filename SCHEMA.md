@@ -29,3 +29,11 @@ The Verifier library visits the SVF ICFG and returns typed site results. The ver
 For equality checks, `ae-condition-true` requires AE to report `[1, 1]` for the C comparison and the same finite singleton for both reporting operands. A condition of `[0, 0]` produces `ae-must-fail-if-reached`. The verifier uses the final call-node state and AE's own lookup for sparse operands. Cases with no usable interval produce `ae-condition-unknown` if the node has a state.
 
 `sites.jsonl` and `tasks.jsonl` are derived from the reports. Witnesses are null. Conformance dependencies are empty because the driver adds no assumptions about earlier checks.
+
+## Overflow reports
+
+`runner/runner.py --property overflow` reads supplied Test-Suite bitcode and writes one report per test and mode. Both `suite` and `property` are `overflow`. The nested `stock_ae` object records the stock command, status, diagnostic, elapsed seconds, alarm count and parsed alarm locations. An alarm without a parsed location carries its raw diagnostic.
+
+Sites have kind `load`, `store` or `oracle`. They record `access_size` in bytes and an `objects` array containing the abstract object ID, base-relative byte `offset` and allocation `size`. Bounds use the reachability interval encoding. A missing fact is null. Loads and stores have a `statement` ID and oracles carry an `expected` label of `safe` or `unsafe`.
+
+Overflow `sites.jsonl` contains `test`, `mode`, `line`, `kind`, `verdict` and `reason`, plus `expected` for oracles. Failed processes are recorded in the per-run reports.

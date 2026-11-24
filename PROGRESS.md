@@ -1,5 +1,7 @@
 # Progress (UTC)
 
+- 2026-11-24 23:09 — Finished A3. All 264 overflow and 264 stock AE runs completed successfully. Compared all 741 reachability runs with A2 and verified the LLVM-free build and clean SVF clone.
+- 2026-11-24 23:05 — Accepted the collaboration invitation and published A2 to the authorized repository after the initial push returned 403.
 - 2026-11-24 22:59 — Built the standalone Verifier target without LLVM include paths. All 741 runs succeeded and matched the saved A2 baseline on site evidence and program verdicts. ICFG order changed in 21 reports.
 - 2026-11-24 22:56 — Completed the A2 split and reran all 741 measurements. Every run status, program verdict and complete site record matched the saved baseline. The pinned SVF tree remained clean.
 
