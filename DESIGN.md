@@ -18,12 +18,12 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 
 ## Properties
 
-| Property | Sites | Safe when |
+| Property | Sites | Proved when |
 |---|---|---|
-| `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same single value); for `unreachable` / `reach_error`, never (`safe` would need a coverage argument, which is out of scope) |
+| `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same single value); for `unreachable` / `reach_error`, never (proving it would need a coverage argument, which is out of scope) |
 | `overflow` | loads and stores through a pointer | for every object the pointer may target, `[offset, offset + width)` lies within `[0, size)` |
 
-Every other situation is `unknown`, with a reason saying what AE saw. Verdicts are `safe` and `unknown` only; `unsafe` is out of scope for now.
+Every other situation is `unproved`, with a reason saying what AE saw (for example `ae-must-fail-if-reached` when the condition is `[0, 0]`). Verdicts are `proved` and `unproved` only. `Proved` is sound with respect to AE: every execution AE models satisfies the check. `Unproved` claims nothing; in particular it is not a violation. Reporting violations (`unsafe`) would need evidence beyond AE's state, such as a replayed witness, and is out of scope.
 
 The property language for `reach` is shipped with the tool as `include/verifier.h` (macros, intrinsics, nondet functions, `verifier_assume`) and specified in `docs/properties.md`. Users include it; nothing depends on an external kit.
 
@@ -59,7 +59,7 @@ Every `.hpp` is LLVM-free: SVF IR and AE's public API only. LLVM appears only in
 ```cpp
 namespace SVF {
 
-enum class Verdict { Safe, Unknown };
+enum class Verdict { Proved, Unproved };
 
 struct SourceLocation { std::string file; unsigned line = 0, column = 0; std::string function; };
 
@@ -118,7 +118,7 @@ The tool writes one report per run (stdout by default). It is complete on its ow
 - `schema_version`, tool version and commit, SVF version, the command line, the AE mode;
 - `status` (`ok` / `error`) and the time;
 - per site: property, kind, location, verdict, reason, evidence (named intervals);
-- per property: the program verdict (`safe` if every site is `safe`, otherwise `unknown`).
+- per property: the program verdict (`proved` if every site is `proved`, otherwise `unproved`).
 
 The schema is documented in `docs/report.md`, with an example. SVF's own console output goes to stderr, so the report stream stays clean without redirecting file descriptors.
 
@@ -153,14 +153,14 @@ No two files share a name. `.hpp` files are included only by `main.cpp` and by e
 ## Build and test
 
 - Build against an installed SVF: `cmake -DSVF_DIR=<svf-install>/lib/cmake/SVF ..`. The supported SVF commit is recorded in `CMakeLists.txt` and the README. A container recipe may be provided, but is not required.
-- `ctest` compiles each `tests/**/*.c` with the canonical command, runs `svf-verifier` in all three AE modes, and compares against the expected verdicts written in the test file (for example `// EXPECT: line 6 safe`). Tests cover each row of each verdict table.
+- `ctest` compiles each `tests/**/*.c` with the canonical command, runs `svf-verifier` in all three AE modes, and compares against the expected verdicts written in the test file (for example `// EXPECT: line 6 proved`). Tests cover each row of each verdict table.
 - AE's known false results (for example an array read with an unbounded index) are not tests here.
 
 ## Known gaps in AE's public API
 
 From the PoC (`poc` branch, `REPORT.md`):
 
-- **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unknown`.
+- **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unproved`.
 - **`getGepObjAddrs` is not read-only.** It creates objects and changes the trace when called after the analysis, so `StateView` cannot use it.
 - **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges.
 - **Source locations** are strings only.
