@@ -14,7 +14,7 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 
 - Making AE more precise or more sound. If AE's state is wrong, the verdict is wrong; that is an AE issue, reported to SVF, not worked around here.
 - Reasoning outside AE: no CFG or path proofs, no LLVM analyses, no IR rewriting, no testing or witness search.
-- Benchmarking. Evaluation harnesses are separate (see [Open questions](#open-questions)).
+- Benchmarking code. Evaluation runs in SAAV-Bench (see [Evaluation](#evaluation)).
 
 ## Properties
 
@@ -122,6 +122,18 @@ The tool writes one report per run (stdout by default). It is complete on its ow
 
 The schema is documented in `docs/report.md`, with an example. SVF's own console output goes to stderr, so the report stream stays clean without redirecting file descriptors.
 
+### Exit status
+
+The exit code never reflects a verdict. Verdicts are only in the report.
+
+| Code | Meaning |
+|---|---|
+| `0` | The analysis finished and the report was written, whatever the verdicts are |
+| `1` | Something went wrong: the input could not be loaded, SVF or AE failed, or the report could not be written |
+| `2` | Bad usage, such as an unknown property or option |
+
+If AE crashes mid-analysis, the process dies with that signal and no report is written; the caller treats it as a failure.
+
 ## Repository layout
 
 ```
@@ -167,7 +179,15 @@ From the PoC (`poc` branch, `REPORT.md`):
 
 These are the candidates for a small upstream API addition.
 
-## Open questions
+## Evaluation
 
-1. **Evaluation harness:** keep a `bench/` directory here (SV-COMP and Test-Suite runners), or keep it with the evaluation kit, outside this repository?
-2. **Exit codes:** should the tool's exit code reflect the verdict (as verifiers in SV-COMP style do) or only success or failure of the run?
+Evaluation uses [SAAV-Bench](https://github.com/ExcitedSpider/SAAV-Bench), which scores *validators*: tools that take the alarms of a base analyzer (`svf-ae`) on Juliet and SV-COMP programs and give each alarm a verdict. This repository contains no benchmark code; the validator definition and its adapter live in SAAV-Bench under `validators/`.
+
+| SAAV-Bench alarm class | Property | Verifier result → SAAV-Bench verdict |
+|---|---|---|
+| `out-of-bounds` (Juliet buffer CWEs) | `overflow`, the access at the alarm's location | `proved` → `refuted`; `unproved` → `inconclusive` |
+| `assertion` (an injected `benchmark_assert(0)` at each SV-COMP `reach_error` call) | `reach` | see the note below |
+
+The verifier never says `confirmed`, because `unproved` is not a violation. A failed run (non-zero exit) maps to `crashed`, `timeout` or `unsupported` as SAAV-Bench defines them.
+
+Note on SV-COMP: refuting an assertion alarm means showing the `reach_error` call cannot be reached. The `reach` table above never proves that for `reach_error` (it would need a coverage argument), so the verifier currently cannot refute any SV-COMP alarm. Deciding whether "no AE state at the node" may count as unreachable, and under which conditions, is the main open design point for `reach`.
