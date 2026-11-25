@@ -40,7 +40,7 @@ Offsets are available for direct base addresses and single GEPs whose source is 
 
 Fixed object sizes below SVF's `-field-limit` are exact. The verifier reads sizes at or above the limit as `[limit, +oo]` because SVF caps the reported size there. For a capped object, a range extending past the limit cannot establish `ae-out-of-bounds-if-reached` on the upper side. A range wholly before the object can still establish that reason.
 
-Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. This includes multidimensional source accesses when the compiler emits a chain instead of a single multistep GEP. Sizes are available for fixed-size non-heap objects.
+Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. This includes multidimensional source accesses when the compiler emits a chain instead of a single multistep GEP. Heap sizes for `malloc` and `calloc` use their allocation-site AE operand intervals in bytes. Other heap allocators and variable-length stack allocations stay unknown.
 
 | Final state at the site | Verdict | Reason |
 |---|---|---|
@@ -49,4 +49,4 @@ Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or 
 | A call has no usable upper bound on length and the analysis cannot establish a definite violation | unproved | `ae-length-unknown` |
 | A possible target has a modeled access range entirely outside the allowed bounds or crossing a bound for all its modeled offsets | unproved | `ae-out-of-bounds-if-reached` |
 | Every modeled target's full access range fits | proved | `ae-in-bounds` |
-| Other bounds evidence, including missing offsets, sizes or widths. Any heap target makes a proof unavailable. | unproved | `ae-bounds-unknown` |
+| Other bounds evidence, including missing offsets, sizes or widths. | unproved | `ae-bounds-unknown` |
