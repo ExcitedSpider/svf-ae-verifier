@@ -63,17 +63,17 @@ void addResults(Object& report, const std::vector<PropertyResults>& results)
 {
     Array sites;
     Object properties;
-    for (const auto& property : results)
+    for (const PropertyResults& property : results)
     {
-        auto verdict = Verdict::Proved;
-        for (const auto& site : property.sites)
+        Verdict verdict = Verdict::Proved;
+        for (const Result& site : property.sites)
         {
             if (site.verdict == Verdict::Unproved)
                 verdict = site.verdict;
             Object evidence;
-            for (const auto& entry : site.evidence)
+            for (const Evidence& entry : site.evidence)
                 evidence[entry.name] = intervalJson(entry.value);
-            const auto& loc = site.location;
+            const SourceLocation& loc = site.location;
             Object entry{{"property", property.name}, {"kind", site.site.kind},
                          {"location", Object{{"file", loc.file}, {"line", loc.line},
                                              {"column", loc.column}, {"function", loc.function}}},
@@ -93,7 +93,7 @@ bool writeReport(Object report, const std::string& path = "")
 {
     using namespace std::chrono;
     report["time_unix_ms"] = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    const auto json = llvm::formatv("{0:2}\n", JsonValue(std::move(report))).str();
+    const std::string json = llvm::formatv("{0:2}\n", JsonValue(std::move(report))).str();
     if (path.empty() || path == "-")
         return static_cast<bool>(std::cout << json << std::flush);
     std::ofstream output(path);
@@ -144,11 +144,11 @@ std::vector<PropertyResults> analyze(llvm::Module& module, const Verifier& verif
         throw std::runtime_error("Could not locate installed SVF extapi.bc");
     LLVMModuleSet::buildSVFModule(module);
     PAGBuilder builder;
-    auto* pag = builder.build();
-    const auto target = readTargetFacts(module, *pag);
-    auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
+    PAG* pag = builder.build();
+    const TargetFacts target = readTargetFacts(module, *pag);
+    AndersenWaveDiff* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
-    const auto state = runAbstractExecution(*pag);
+    const StateView state = runAbstractExecution(*pag);
     return verifier.run(*pag->getICFG(), state, target);
 }
 
