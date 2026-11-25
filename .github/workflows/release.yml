@@ -1,5 +1,10 @@
 name: release
 
+# The release label is <version>-svf-<SVF short commit>-llvm-<LLVM major>,
+# for example 0.1.0-svf-a8a0f51-llvm-22. It names the Git tag (with a "v"),
+# the GitHub release and the image tag. SVF and LLVM are read from the built
+# image, so the label always describes what was actually built.
+
 on:
   workflow_dispatch:
     inputs:
@@ -31,6 +36,7 @@ jobs:
     timeout-minutes: 720
     env:
       VERSION: ${{ inputs.version }}
+      LOCAL: localhost/svf-ae-verifier-release
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,9 +54,6 @@ jobs:
           cmake_version="$(sed -nE 's/^project\(svf-ae-verifier VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
           if [ "$cmake_version" != "$VERSION" ]; then
             echo "::error::CMakeLists.txt has version $cmake_version, not $VERSION"; exit 1
-          fi
-          if git rev-parse -q --verify "refs/tags/v$VERSION" > /dev/null; then
-            echo "::error::tag v$VERSION already exists"; exit 1
           fi
           sha="$(git ls-remote https://github.com/SVF-tools/SVF.git "${{ inputs.svf_ref }}" | head -1 | cut -f1)"
           if [ -z "$sha" ]; then
@@ -70,51 +73,66 @@ jobs:
             podman build --platform "$platform" \
               --build-arg "SVF_REF=$SVF_SHA" \
               --build-arg "VERIFIER_GIT_COMMIT=$GITHUB_SHA" \
-              -t "$IMAGE:$VERSION-$arch" .
+              -t "$LOCAL:$arch" .
             echo "::endgroup::"
             echo "::group::smoke test $platform"
-            bash .github/scripts/smoke-test.sh "$IMAGE:$VERSION-$arch" "$platform"
+            bash .github/scripts/smoke-test.sh "$LOCAL:$arch" "$platform"
             echo "::endgroup::"
           done
 
-      - name: read build metadata
+      - name: release label
         shell: bash
         run: |
-          first="$(set -- ${{ inputs.platforms }}; echo "${1#linux/}")"
-          image="$IMAGE:$VERSION-$first"
+          svf="" llvm=""
+          for platform in ${{ inputs.platforms }}; do
+            image="$LOCAL:${platform#linux/}"
+            s="$(podman run --rm --platform "$platform" "$image" cat /opt/svf/SVF_COMMIT)"
+            l="$(podman run --rm --platform "$platform" "$image" cat /opt/svf/LLVM_VERSION)"
+            if [ -n "$svf" ] && { [ "$s" != "$svf" ] || [ "$l" != "$llvm" ]; }; then
+              echo "::error::platforms differ: SVF $svf/$s, LLVM $llvm/$l"; exit 1
+            fi
+            svf="$s" llvm="$l"
+          done
+          label="$VERSION-svf-${svf:0:7}-llvm-${llvm%%.*}"
+          if git rev-parse -q --verify "refs/tags/v$label" > /dev/null; then
+            echo "::error::tag v$label already exists"; exit 1
+          fi
           {
-            echo "BUILT_SVF_COMMIT=$(podman run --rm "$image" cat /opt/svf/SVF_COMMIT)"
-            echo "BUILT_LLVM_VERSION=$(podman run --rm "$image" cat /opt/svf/LLVM_VERSION)"
+            echo "LABEL=$label"
+            echo "BUILT_SVF_COMMIT=$svf"
+            echo "BUILT_LLVM_VERSION=$llvm"
           } >> "$GITHUB_ENV"
+          echo "release label: $label"
 
       - name: push image
         if: inputs.publish
         shell: bash
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman manifest rm "$IMAGE:$VERSION" 2>/dev/null || true
-          podman manifest create "$IMAGE:$VERSION"
+          podman manifest rm "$IMAGE:$LABEL" 2>/dev/null || true
+          podman manifest create "$IMAGE:$LABEL"
           for platform in ${{ inputs.platforms }}; do
-            podman push "$IMAGE:$VERSION-${platform#linux/}"
-            podman manifest add "$IMAGE:$VERSION" "docker://$IMAGE:$VERSION-${platform#linux/}"
+            arch="${platform#linux/}"
+            podman push "$LOCAL:$arch" "docker://$IMAGE:$LABEL-$arch"
+            podman manifest add "$IMAGE:$LABEL" "docker://$IMAGE:$LABEL-$arch"
           done
-          podman manifest push --all "$IMAGE:$VERSION" "docker://$IMAGE:$VERSION"
-          podman manifest push --all "$IMAGE:$VERSION" "docker://$IMAGE:latest"
+          podman manifest push --all "$IMAGE:$LABEL" "docker://$IMAGE:$LABEL"
+          podman manifest push --all "$IMAGE:$LABEL" "docker://$IMAGE:latest"
 
       - name: release notes
         shell: bash
         run: |
           cat > release-notes.md <<EOF
-          Container image: \`$IMAGE:$VERSION\` (${{ inputs.platforms }})
+          Container image: \`$IMAGE:$LABEL\` (${{ inputs.platforms }})
 
           | Component | Version |
           |---|---|
-          | svf-ae-verifier | \`$GITHUB_SHA\` |
+          | svf-ae-verifier | $VERSION (\`$GITHUB_SHA\`) |
           | SVF | \`$BUILT_SVF_COMMIT\` |
           | LLVM | $BUILT_LLVM_VERSION |
 
           \`\`\`sh
-          docker pull $IMAGE:$VERSION
+          docker pull $IMAGE:$LABEL
           \`\`\`
           EOF
           cat release-notes.md
@@ -123,16 +141,18 @@ jobs:
         if: inputs.publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}
+          tag_name: v${{ env.LABEL }}
           target_commitish: ${{ github.sha }}
-          name: v${{ inputs.version }}
+          name: v${{ env.LABEL }}
           body_path: release-notes.md
 
       - name: remove images
         if: always()
         shell: bash
         run: |
-          podman manifest rm "$IMAGE:$VERSION" 2>/dev/null || true
+          if [ -n "${LABEL:-}" ]; then
+            podman manifest rm "$IMAGE:$LABEL" 2>/dev/null || true
+          fi
           for platform in ${{ inputs.platforms }}; do
-            podman rmi -f "$IMAGE:$VERSION-${platform#linux/}" || true
+            podman rmi -f "$LOCAL:${platform#linux/}" || true
           done
