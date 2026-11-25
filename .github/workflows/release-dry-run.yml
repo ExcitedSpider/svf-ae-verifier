@@ -1,0 +1,77 @@
+name: release-dry-run
+
+# Runs the release build and smoke test for every platform, without pushing an
+# image or creating a release, whenever a pull request changes what a release
+# builds or runs. It uses the same scripts as the release workflow.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - .github/scripts/**
+      - .github/workflows/release.yml
+      - .github/workflows/release-dry-run.yml
+  workflow_dispatch:
+
+concurrency:
+  group: release-dry-run-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: release-dry-run
+    # Self-hosted runners on a public repository: never run code from forks.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 720
+    env:
+      LOCAL: localhost/svf-ae-verifier-dry-run-${{ github.run_id }}-${{ github.run_attempt }}
+      PLATFORMS: linux/amd64 linux/arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: resolve version and SVF
+        shell: bash
+        run: |
+          # The release default: a fix bump against SVF master.
+          version="$(bash .github/scripts/release-version.sh fix)"
+          sha="$(bash .github/scripts/resolve-svf-ref.sh master)"
+          {
+            echo "VERSION=$version"
+            echo "SVF_SHA=$sha"
+          } >> "$GITHUB_ENV"
+
+      - name: build and test each platform
+        shell: bash
+        run: |
+          commit="${{ github.event.pull_request.head.sha || github.sha }}"
+          bash .github/scripts/build-release-images.sh "$LOCAL" "$SVF_SHA" "$VERSION" "$commit" $PLATFORMS \
+            | tail -3 | tee -a "$GITHUB_ENV"
+
+      - name: summary
+        shell: bash
+        run: |
+          {
+            echo "Release dry run passed for \`$PLATFORMS\`."
+            echo
+            echo "| Would release | Value |"
+            echo "|---|---|"
+            echo "| Label | \`$LABEL\` |"
+            echo "| SVF | \`$BUILT_SVF_COMMIT\` |"
+            echo "| LLVM | $BUILT_LLVM_VERSION |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: remove images
+        if: always()
+        shell: bash
+        run: |
+          for platform in $PLATFORMS; do
+            podman rmi -f "$LOCAL:${platform#linux/}" || true
+          done

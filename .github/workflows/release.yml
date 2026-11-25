@@ -52,68 +52,21 @@ jobs:
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "::error::release only from main (got $GITHUB_REF)"; exit 1
           fi
-          previous="$(git tag -l 'v*' | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)(-.*)?$/\1/p' | sort -V | tail -1)"
-          IFS=. read -r major minor patch <<< "${previous:-0.0.0}"
-          case "$BUMP" in
-            major) VERSION="$((major + 1)).0.0" ;;
-            minor) VERSION="$major.$((minor + 1)).0" ;;
-            fix)   VERSION="$major.$minor.$((patch + 1))" ;;
-            *) echo "::error::unknown bump $BUMP"; exit 1 ;;
-          esac
-          if git tag -l "v$VERSION" "v$VERSION-*" | grep -q .; then
-            echo "::error::a release tag for $VERSION already exists"; exit 1
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "release version: ${previous:-none} -> $VERSION ($BUMP)"
-          sha="$(git ls-remote https://github.com/SVF-tools/SVF.git "${{ inputs.svf_ref }}" | head -1 | cut -f1)"
-          if [ -z "$sha" ]; then
-            # Not a branch or tag name: treat it as a commit.
-            sha="${{ inputs.svf_ref }}"
-          fi
-          echo "SVF_SHA=$sha" >> "$GITHUB_ENV"
-          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          # Assign first: a failure inside $(...) in an echo argument wouldn't fail the step.
+          version="$(bash .github/scripts/release-version.sh "$BUMP")"
+          sha="$(bash .github/scripts/resolve-svf-ref.sh "${{ inputs.svf_ref }}")"
+          {
+            echo "VERSION=$version"
+            echo "SVF_SHA=$sha"
+            echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}"
+          } >> "$GITHUB_ENV"
 
       - name: build and test each platform
         shell: bash
         run: |
-          for platform in ${{ inputs.platforms }}; do
-            arch="${platform#linux/}"
-            echo "::group::build $platform"
-            # The build stage runs ctest; a failing test fails the release.
-            podman build --platform "$platform" \
-              --build-arg "SVF_REF=$SVF_SHA" \
-              --build-arg "VERIFIER_GIT_COMMIT=$GITHUB_SHA" \
-              --build-arg "VERIFIER_VERSION=$VERSION" \
-              -t "$LOCAL:$arch" .
-            echo "::endgroup::"
-            echo "::group::smoke test $platform"
-            bash .github/scripts/smoke-test.sh "$LOCAL:$arch" "$platform" "$VERSION"
-            echo "::endgroup::"
-          done
-
-      - name: release label
-        shell: bash
-        run: |
-          svf="" llvm=""
-          for platform in ${{ inputs.platforms }}; do
-            image="$LOCAL:${platform#linux/}"
-            s="$(podman run --rm --platform "$platform" "$image" cat /opt/svf/SVF_COMMIT)"
-            l="$(podman run --rm --platform "$platform" "$image" cat /opt/svf/LLVM_VERSION)"
-            if [ -n "$svf" ] && { [ "$s" != "$svf" ] || [ "$l" != "$llvm" ]; }; then
-              echo "::error::platforms differ: SVF $svf/$s, LLVM $llvm/$l"; exit 1
-            fi
-            svf="$s" llvm="$l"
-          done
-          label="$VERSION-svf-${svf:0:7}-llvm-${llvm%%.*}"
-          if git rev-parse -q --verify "refs/tags/v$label" > /dev/null; then
-            echo "::error::tag v$label already exists"; exit 1
-          fi
-          {
-            echo "LABEL=$label"
-            echo "BUILT_SVF_COMMIT=$svf"
-            echo "BUILT_LLVM_VERSION=$llvm"
-          } >> "$GITHUB_ENV"
-          echo "release label: $label"
+          # The build stage runs ctest; a failing test fails the release.
+          bash .github/scripts/build-release-images.sh "$LOCAL" "$SVF_SHA" "$VERSION" "$GITHUB_SHA" \
+            ${{ inputs.platforms }} | tail -3 >> "$GITHUB_ENV"
 
       - name: push image
         if: inputs.publish
