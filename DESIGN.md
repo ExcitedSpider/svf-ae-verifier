@@ -10,6 +10,19 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 - It uses SVF unmodified, through its public API, so it builds against an installed SVF.
 - The code is header-only (`.hpp`) with a single `main.cpp`. No header/source split.
 
+## Responsibilities
+
+SVF-AE and the verifier split the work at AE's final state.
+
+| | SVF-AE | svf-verifier |
+|---|---|---|
+| Does | Computes the abstract-state fixpoint over the ICFG. | Takes that state and checks properties against it. |
+| Must be sound | The fixpoint: every concrete state an execution can reach is contained in AE's abstract state at that node. | Each check, relative to the fixpoint: `proved` only when every state AE allows satisfies the check. |
+| Produces | The final abstract states. | The sites, verdicts, alarms (sites not `proved`), their source locations, reasons and evidence, and the report format. |
+| Owns these wrong results | An unsound or imprecise fixpoint, including object sizes and offsets AE gets wrong. Fixed in SVF. | A wrong check, a missed site, a wrong location or a malformed report. Fixed here. |
+
+So if SVF-AE's fixpoint is sound, every `proved` verdict holds. The verifier neither adds to nor repairs the state.
+
 ## Non-goals
 
 - Making AE more precise or more sound. If AE's state is wrong, the verdict is wrong; that is an AE issue, reported to SVF, not worked around here.
