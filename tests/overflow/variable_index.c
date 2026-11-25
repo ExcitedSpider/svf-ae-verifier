@@ -19,6 +19,7 @@ int main(void)
     return buffer[seven];        /* line 19: load at index 7 */
 }
 
+// EXPECT: line 7 call-write proved ae-in-bounds
 // EXPECT: line 10 store proved ae-in-bounds
 // EXPECT: line 13 store proved ae-in-bounds
 // EXPECT: line 16 store unproved ae-out-of-bounds-if-reached

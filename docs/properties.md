@@ -30,7 +30,11 @@ The assume macro expresses a precondition in the input program. AE can still los
 
 ## Overflow
 
-The sites are loads and stores represented by SVF statements. Synthetic effects at call and return nodes are excluded. The verifier checks `[offset, offset + width)` against `[0, size)` for every abstract target. Width is the SVF byte size of the loaded or stored type.
+The sites are loads and stores represented by SVF statements and individual accesses at direct calls classified by SVF's `MEMCPY`, `MEMSET`, `STRCPY`, or `STRCAT` annotations. Recognized copies and concatenations have a destination write and a source read, and fills have a destination write. Annotated LLVM intrinsics follow the same rules. The verifier excludes synthetic call and return statements as individual load/store sites.
+
+The verifier checks `[offset, offset + length)` against `[0, size)` for every abstract target. A load or store uses the SVF byte size of its value type. A counted byte call uses the AE argument interval, with a maximum alone where the access can stop early. A proof uses the largest possible length and smallest possible object size. A definite violation requires a positive minimum length and a byte outside the largest possible object for every modeled offset.
+
+The pinned AE string-length query can create field objects. The verifier leaves string copy and concatenation lengths unknown, including the wide variants classified by SVF. Wide counts without a sound byte-length model and indirect length arguments stay unknown. A routine without a relevant SVF annotation, such as `wcsncpy` at the pinned revision, has no call site.
 
 Offsets are available for direct base addresses and single GEPs whose source is the direct address of one object. Sequential steps use the index interval at the GEP and the element's allocation stride. Struct steps use the field's byte offset from the target layout, including padding. Arithmetic keeps negative offsets and infinities and leaves potentially wrapping finite offsets unknown. For example, the dense, semi-sparse, and sparse fixtures leave a guarded external index unproved when AE supplies no useful bounds for the GEP index.
 
@@ -40,6 +44,7 @@ Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or 
 |---|---|---|
 | No recorded state | unproved | `ae-no-state` |
 | AE exposes no resolvable object | unproved | `ae-object-unknown` |
+| A call has no usable upper bound on length and the analysis cannot establish a definite violation | unproved | `ae-length-unknown` |
 | A possible target has a modeled access range entirely outside the allowed bounds or crossing a bound for all its modeled offsets | unproved | `ae-out-of-bounds-if-reached` |
 | Every modeled target's full access range fits | proved | `ae-in-bounds` |
 | Other bounds evidence, including missing offsets, sizes or widths. Any heap target makes a proof unavailable. | unproved | `ae-bounds-unknown` |

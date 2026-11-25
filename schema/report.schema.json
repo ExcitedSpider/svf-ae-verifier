@@ -154,6 +154,10 @@
         "kind": {
           "type": "string"
         },
+        "callee": {
+          "type": "string",
+          "minLength": 1
+        },
         "location": {
           "$ref": "#/$defs/location"
         },
@@ -245,23 +249,28 @@
       }
     },
     "overflowSite": {
+      "if": {
+        "properties": {"kind": {"enum": ["call-read", "call-write"]}}
+      },
+      "then": {"required": ["callee"]},
       "properties": {
         "kind": {
-          "enum": ["load", "store"]
+          "enum": ["load", "store", "call-read", "call-write"]
         },
         "reason": {
           "enum": [
             "ae-no-state",
             "ae-object-unknown",
+            "ae-length-unknown",
             "ae-bounds-unknown",
             "ae-out-of-bounds-if-reached",
             "ae-in-bounds"
           ]
         },
         "evidence": {
-          "description": "width: access size in bytes. offset.<id> and size.<id>: byte offset into and byte size of each target object; SVF object IDs are local to the run.",
+          "description": "width: load/store size in bytes. length: call access in bytes. offset.<id> and size.<id>: byte offset and byte size of each target object.",
           "propertyNames": {
-            "pattern": "^(width|(offset|size)\\.[0-9]+)$"
+            "pattern": "^(width|length|(offset|size)\\.[0-9]+)$"
           },
           "additionalProperties": {
             "$ref": "#/$defs/interval"

@@ -19,7 +19,9 @@ The machine-readable definition is [`schema/report.schema.json`](../schema/repor
 
 Each site has `property`, `kind`, `location`, `verdict`, `reason` and `evidence`. Location contains `file`, `line`, `column` and `function`. Unknown numbers use zero and unknown strings are empty. Reach intrinsics can supply a source line independent of debug columns.
 
-Evidence contains named intervals, represented by two inclusive bounds or null for unavailable values. Finite bounds are JSON integers. Infinite bounds use the strings `"-inf"` and `"+inf"`. Overflow evidence uses `width` and per-target `offset.<object-id>` and `size.<object-id>` keys. SVF object IDs are local to the run.
+The overflow kinds `load` and `store` identify ordinary memory instructions. `call-read` and `call-write` identify separate accesses at an annotated call and include the SVF callee name in `callee`.
+
+Evidence contains named intervals, represented by two inclusive bounds or null for unavailable values. Finite bounds are JSON integers. Infinite bounds use the strings `"-inf"` and `"+inf"`. Overflow evidence uses load/store `width`, call `length`, and per-target `offset.<object-id>` and `size.<object-id>`, all in bytes. SVF object IDs are local to the run. The reason `ae-length-unknown` indicates that AE did not supply enough usable byte-length evidence to decide the call access.
 
 ## Example
 

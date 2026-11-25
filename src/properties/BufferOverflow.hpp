@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Property.hpp"
+#include "Util/ExtAPI.h"
 #include <algorithm>
 
 namespace SVF {
@@ -14,8 +15,19 @@ public:
         std::vector<Site> result;
         for (const auto& [id, node] : icfg)
         {
-            // Call and return nodes can contain modeled effects of external functions.
-            if (SVFUtil::isa<CallICFGNode>(node) || SVFUtil::isa<RetICFGNode>(node))
+            if (const auto* call = SVFUtil::dyn_cast<CallICFGNode>(node))
+            {
+                if (const auto rule = memoryCall(*call))
+                {
+                    const auto& callee = call->getCalledFunction()->getName();
+                    result.push_back({node, nullptr, "call-write", std::nullopt, callee});
+                    if (rule->source)
+                        result.push_back({node, nullptr, "call-read", std::nullopt, callee});
+                }
+                continue;
+            }
+            // Synthetic call and return effects are not individual access sites.
+            if (SVFUtil::isa<RetICFGNode>(node))
                 continue;
             for (const auto* stmt : node->getSVFStmts())
             {
@@ -34,23 +46,46 @@ public:
         if (!state.reached(site.node))
             return result;
 
-        const ValVar* pointer;
-        const SVFType* type;
-        if (const auto* load = SVFUtil::dyn_cast<LoadStmt>(site.stmt))
+        const auto* call = SVFUtil::dyn_cast<CallICFGNode>(site.node);
+        const ValVar* pointer = nullptr;
+        std::optional<IntervalValue> length;
+        if (call)
         {
-            pointer = load->getRHSVar();
-            type = load->getLHSVar()->getType();
+            const auto rule = *memoryCall(*call);
+            const bool read = site.kind == "call-read";
+            const auto position = read ? *rule.source : rule.destination;
+            if (position < call->arg_size())
+                pointer = call->getArgument(position);
+            if (rule.count && *rule.count < call->arg_size())
+            {
+                length = state.interval(call->getArgument(*rule.count), call);
+                if (length && (length->lb().is_infinity() || length->lb() < BoundedInt(0)))
+                    length.reset();
+                if (length && (rule.maximumOnly || (read && rule.sourceMaximum)))
+                    length = IntervalValue(BoundedInt(0), length->ub());
+            }
         }
         else
         {
-            const auto* store = SVFUtil::cast<StoreStmt>(site.stmt);
-            pointer = store->getLHSVar();
-            type = store->getRHSVar()->getType();
+            const SVFType* type;
+            if (const auto* load = SVFUtil::dyn_cast<LoadStmt>(site.stmt))
+            {
+                pointer = load->getRHSVar();
+                type = load->getLHSVar()->getType();
+            }
+            else
+            {
+                const auto* store = SVFUtil::cast<StoreStmt>(site.stmt);
+                pointer = store->getLHSVar();
+                type = store->getRHSVar()->getType();
+            }
+            if (const auto width = type ? type->getByteSize() : 0)
+                length.emplace(width);
         }
-        const auto width = type ? type->getByteSize() : 0;
-        result.evidence.push_back({"width", width ? std::optional<IntervalValue>(width) : std::nullopt});
+        result.evidence.push_back({call ? "length" : "width", length});
         const auto targets = state.addresses(pointer, site.node);
-        result.reason = "ae-object-unknown";
+        const bool unknownLength = call && (!length || length->ub().is_infinity());
+        result.reason = unknownLength ? "ae-length-unknown" : "ae-object-unknown";
         if (!targets || targets->empty())
             return result;
 
@@ -73,18 +108,20 @@ public:
             const auto target = std::to_string(*id);
             result.evidence.push_back({"offset." + target, offset});
             result.evidence.push_back({"size." + target, size});
-            if (!offset || !size || !width)
+            if (!offset || !size || !length)
             {
                 missing = true;
                 continue;
             }
             const BoundedInt zero(0);
-            const auto lastStart = [width](const BoundedInt& bound) {
+            const auto lastStart = [](const BoundedInt& bound, const BoundedInt& bytes) {
                 return bound.is_infinity() ? bound
-                                           : BoundedInt(bound.getNumeral() - static_cast<s64_t>(width));
+                                           : BoundedInt(bound.getNumeral() - bytes.getNumeral());
             };
-            allIn &= offset->lb().geq(zero) && offset->ub().leq(lastStart(size->lb()));
-            someOut |= offset->ub() < zero || offset->lb() > lastStart(size->ub());
+            allIn &= !length->ub().is_infinity() && offset->lb().geq(zero)
+                     && offset->ub().leq(lastStart(size->lb(), length->ub()));
+            someOut |= length->lb() > zero
+                       && (offset->ub() < zero || offset->lb() > lastStart(size->ub(), length->lb()));
         }
         if (!hasObject)
             return result;
@@ -96,11 +133,47 @@ public:
             result.reason = "ae-in-bounds";
         }
         else
-            result.reason = "ae-bounds-unknown";
+            result.reason = unknownLength ? "ae-length-unknown" : "ae-bounds-unknown";
         return result;
     }
 
 private:
+    struct CallRule {
+        unsigned destination;
+        std::optional<unsigned> source;
+        std::optional<unsigned> count;
+        bool maximumOnly = false;
+        bool sourceMaximum = false;
+    };
+
+    static std::optional<CallRule> memoryCall(const CallICFGNode& call)
+    {
+        const auto* callee = call.getCalledFunction();
+        if (!callee)
+            return std::nullopt;
+        auto* ext = ExtAPI::getExtAPI();
+        // The predicate reads the annotation map without inserting missing entries.
+        const auto annotated = [ext, callee](const char* family) {
+            return ext->hasExtFuncAnnotation(callee, family);
+        };
+        const auto& name = callee->getName();
+        if (annotated("STRCPY") || annotated("STRCAT"))
+            return CallRule{0, 1, std::nullopt};
+        if (annotated("MEMSET"))
+            // The pinned model does not give a sound wide byte count.
+            return CallRule{0, std::nullopt, name == "wmemset" ? std::nullopt : std::optional{2u},
+                            name == "__memset_chk"};
+        if (!annotated("MEMCPY"))
+            return std::nullopt;
+        if (name == "bcopy")
+            return CallRule{1, 0, 2};
+        if (name == "memccpy")
+            return CallRule{0, 1, 3, true};
+        if (name == "iconv")
+            return CallRule{3, 1, std::nullopt};
+        return CallRule{0, 1, 2, name == "__memcpy_chk" || name == "__memmove_chk", name == "strncpy"};
+    }
+
     static const SVFStmt* definition(const ValVar* pointer)
     {
         const SVFStmt* result = nullptr;
