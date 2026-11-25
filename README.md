@@ -18,7 +18,7 @@ docker run --rm --memory=4g --memory-swap=4g -v "$PWD:/input:ro" svf-ae-verifier
   timeout 120 svf-verifier -property=reach -ae-sparsity=sparse input.ll'
 ```
 
-The same commands work with `podman` in place of `docker`. On SELinux hosts use `:ro,Z` for the bind mount if needed.
+The same commands work with `podman` in place of `docker`. On SELinux hosts use `:ro,Z` for the bind mount if needed. The amd64 image also compiles ILP32 inputs with `clang -m32`; the arm64 image has no i386 headers and compiles LP64 inputs only.
 
 Run the build from a clean checkout to record its commit. Omit `VERIFIER_GIT_COMMIT` if the verifier revision is unknown. Pass `--build-arg SVF_REF=<commit>` to select a specific SVF revision or `--build-arg LLVM_MAJOR=<major>` to select a different LLVM toolchain. The report records `svf_commit` and `llvm_version`.
 

@@ -74,6 +74,14 @@ RUN cmake -S . -B /build/verifier -G Ninja -DCMAKE_BUILD_TYPE=Release \
 
 FROM llvm-runtime AS runtime
 
+# ILP32 (-m32) inputs need the i386 libc development headers. Debian provides
+# them for amd64 only, so arm64 images compile LP64 inputs only.
+RUN if [ "$(dpkg --print-architecture)" = amd64 ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends libc6-dev-i386 \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 COPY --from=build /build/verifier/svf-verifier /usr/local/bin/
 COPY --from=svf /opt/svf/lib/extapi.bc /opt/svf/lib/
 COPY --from=svf /opt/svf/SVF_COMMIT /opt/svf/LLVM_VERSION /opt/svf/
