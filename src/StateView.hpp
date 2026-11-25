@@ -31,10 +31,9 @@ public:
         return std::nullopt;
     }
 
-    const BaseObjVar* baseObject(u32_t address, const ICFGNode* node) const
+    const BaseObjVar* baseObject(NodeID id) const
     {
-        const auto id = objectId(address, node);
-        return id ? pag.getBaseObject(*id) : nullptr;
+        return pag.isNullOrBlkObj(id) ? nullptr : pag.getBaseObject(id);
     }
 
     std::optional<IntervalValue> byteSize(const BaseObjVar* object) const
@@ -44,36 +43,19 @@ public:
         return std::nullopt;
     }
 
-    std::optional<IntervalValue> byteOffset(const ValVar* pointer, u32_t address,
-                                           const ICFGNode* node) const
+    IntervalValue constantGepByteOffset(const GepStmt* gep) const
     {
-        const auto id = objectId(address, node);
-        if (!id)
-            return std::nullopt;
-        const auto* defStmt = definition(pointer);
-        if (directObject(defStmt) == pag.getSVFVar(*id))
-            return IntervalValue(0);
-        const auto* gep = defStmt ? SVFUtil::dyn_cast<GepStmt>(defStmt) : nullptr;
-        if (!gep)
-            return std::nullopt;
+        return ae.getGepByteOffset(gep);
+    }
 
-        const auto* base = directObject(definition(gep->getRHSVar()));
-        const auto* def = gep->getICFGNode();
-        if (!base || base != pag.getBaseObject(*id) || !reached(def) || !gep->isConstantOffset())
+    std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const
+    {
+        if (!reached(node) || !AbstractState::isVirtualMemAddress(address))
             return std::nullopt;
-        const auto source = addresses(gep->getRHSVar(), def);
-        if (!source || source->size() != 1 ||
-                objectId(*source->begin(), def) != base->getId())
+        const auto id = static_cast<const AbstractState&>(ae.getAbsState(node)).getIDFromAddr(address);
+        if (!pag.hasGNode(id) || !SVFUtil::isa<ObjVar>(pag.getSVFVar(id)))
             return std::nullopt;
-        for (const auto& step : gep->getOffsetVarAndGepTypePairVec())
-            if (!step.second || !SVFUtil::isa<SVFPointerType, SVFArrayType>(step.second))
-                return std::nullopt;
-        // Dynamic offsets may lose negative ranges. Even the constant helper
-        // saturates at the field limit and does not account for struct padding.
-        const auto offset = ae.getGepByteOffset(gep);
-        if (offset.ub().geq(BoundedInt(Options::MaxFieldLimit())))
-            return std::nullopt;
-        return offset;
+        return id;
     }
 
 private:
@@ -83,38 +65,6 @@ private:
         if (var && reached(node) && ae.hasAbsValue(var, node))
             return &ae.getAbsValue(var, node);
         return nullptr;
-    }
-
-    std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const
-    {
-        if (!reached(node) || !AbstractState::isVirtualMemAddress(address))
-            return std::nullopt;
-        const auto id = static_cast<const AbstractState&>(ae.getAbsState(node)).getIDFromAddr(address);
-        if (!pag.hasGNode(id) || pag.isNullOrBlkObj(id) ||
-                !SVFUtil::isa<ObjVar>(pag.getSVFVar(id)))
-            return std::nullopt;
-        return id;
-    }
-
-    static const SVFStmt* definition(const ValVar* pointer)
-    {
-        const SVFStmt* result = nullptr;
-        for (const auto* edge : pointer->getInEdges())
-        {
-            // A store's destination edge uses the pointer as an address.
-            if (SVFUtil::isa<StoreStmt>(edge))
-                continue;
-            if (result)
-                return nullptr;
-            result = edge;
-        }
-        return result;
-    }
-
-    static const BaseObjVar* directObject(const SVFStmt* def)
-    {
-        const auto* addr = def ? SVFUtil::dyn_cast<AddrStmt>(def) : nullptr;
-        return addr ? SVFUtil::dyn_cast<BaseObjVar>(addr->getRHSVar()) : nullptr;
     }
 
     AbstractInterpretation& ae;

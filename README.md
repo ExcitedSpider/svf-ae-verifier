@@ -4,10 +4,11 @@
 
 ## Build and run in a container
 
-The Dockerfile is the reference build. It builds pinned SVF and the verifier with the same LLVM 22 compiler and runs CTest during the build.
+The Dockerfile is the reference build. It builds SVF `master` and the verifier with the same LLVM 22 compiler and runs CTest during the build.
 
 ```sh
-docker build -t svf-ae-verifier .
+docker build --no-cache -t svf-ae-verifier \
+  --build-arg "VERIFIER_GIT_COMMIT=$(git rev-parse HEAD)" .
 docker run --rm --memory=4g --memory-swap=4g -v "$PWD:/input:ro" svf-ae-verifier \
   sh -ec 'clang -g -S -emit-llvm -Xclang -disable-O0-optnone -fno-discard-value-names \
     /input/tests/reach/conditions.c -o input.raw.ll
@@ -17,13 +18,14 @@ docker run --rm --memory=4g --memory-swap=4g -v "$PWD:/input:ro" svf-ae-verifier
 
 The same commands work with `podman` in place of `docker`. On SELinux hosts use `:ro,Z` for the bind mount if needed.
 
+Run the build from a clean checkout to record its commit. Omit `VERIFIER_GIT_COMMIT` if the verifier revision is unknown. Pass `--build-arg SVF_REF=<commit>` to select a specific SVF revision or `--build-arg LLVM_MAJOR=<major>` to select a different LLVM toolchain. The report records `svf_commit` and `llvm_version`.
+
 ## Manual build against installed SVF
 
-Use LLVM 22, CMake, Ninja, Z3 development files and the same Clang C++ compiler for SVF and the verifier. Matching compilers keeps SVF's option registry shared across both. The supported SVF revision is `a8a0f5181748059c2df2281e5e4ada63ccda3832` (SVF 3.4). Run these commands from the verifier checkout in a development environment with LLVM 22 on `PATH`.
+Tested with SVF `master`. Use LLVM 22, CMake, Ninja, Z3 development files and the same Clang C++ compiler for SVF and the verifier. Matching compilers keeps SVF's option registry shared across both. Run these commands from the verifier checkout in a development environment with LLVM 22 on `PATH`.
 
 ```sh
-git clone https://github.com/SVF-tools/SVF.git ../svf-verifier-deps/svf
-git -C ../svf-verifier-deps/svf checkout --detach a8a0f5181748059c2df2281e5e4ada63ccda3832
+git clone --branch master https://github.com/SVF-tools/SVF.git ../svf-verifier-deps/svf
 cmake -S ../svf-verifier-deps/svf -B ../svf-verifier-deps/build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DSVF_WARN_AS_ERROR=OFF -DCMAKE_INSTALL_PREFIX="$PWD/../svf-verifier-deps/install" \
@@ -33,11 +35,12 @@ cmake --install ../svf-verifier-deps/build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DSVF_DIR="$PWD/../svf-verifier-deps/install/lib/cmake/SVF" \
+  "-DSVF_COMMIT=$(git -C ../svf-verifier-deps/svf rev-parse HEAD)" \
   -DLLVM_DIR="$(llvm-config --cmakedir)"
 cmake --build build
 ```
 
-SVF's default warnings-as-errors setting rejects unused variables in the pinned revision's Release build. The commands disable that setting using SVF's CMake option and keep the source unmodified.
+SVF's default warnings-as-errors setting can reject unused variables in Release builds. The commands disable that setting without modifying SVF. For an existing SVF installation, supply `-DSVF_COMMIT=<commit>` only when you know which revision built it. If the installation has no revision metadata, the report uses `unknown`.
 
 ## Compile and verify a C file
 

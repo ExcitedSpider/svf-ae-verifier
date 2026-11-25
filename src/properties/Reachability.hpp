@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../Property.hpp"
-#include <limits>
 
 namespace SVF {
 
@@ -20,7 +19,11 @@ public:
             const auto& callee = call->getCalledFunction()->getName();
             if (callee == "__verifier_assert" || callee == "__verifier_eq" ||
                     callee == "__verifier_unreachable")
-                result.push_back({node, nullptr, callee.substr(2)});
+            {
+                const unsigned lineArgument = callee == "__verifier_eq" ? 3 :
+                                              callee == "__verifier_assert" ? 1 : 0;
+                result.push_back({node, nullptr, callee.substr(2), lineArgument});
+            }
             else if (callee == "reach_error")
                 result.push_back({node, nullptr, callee});
         }
@@ -33,14 +36,6 @@ public:
         const bool equality = site.kind == "verifier_eq";
         const bool assertion = site.kind == "verifier_assert";
         Result result{site, {}, Verdict::Unproved, "ae-no-state", {}};
-        if (site.kind != "reach_error")
-        {
-            const unsigned lineIndex = equality ? 3 : assertion ? 1 : 0;
-            if (lineIndex < call.arg_size())
-                if (const auto* line = SVFUtil::dyn_cast<ConstIntValVar>(call.getArgument(lineIndex)))
-                    if (line->getZExtValue() <= std::numeric_limits<unsigned>::max())
-                        result.location.line = line->getZExtValue();
-        }
         if (!state.reached(&call))
             return result;
         if (!equality && !assertion)

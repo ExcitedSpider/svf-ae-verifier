@@ -21,7 +21,7 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 | Property | Sites | Proved when |
 |---|---|---|
 | `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same finite singleton). Error sites always remain unproved. |
-| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | for every object the pointer may target, `[offset, offset + width)` lies within `[0, size)` |
+| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single constant array or pointer GEPs from a direct base whose AE offset is below the field limit. Heap targets leave the site unproved. |
 
 Every other situation is `unproved`, with a reason saying what AE saw (for example `ae-must-fail-if-reached` when the condition is `[0, 0]`). Verdicts are `proved` and `unproved` only. `Proved` is sound with respect to AE: every execution AE models satisfies the check. `Unproved` claims nothing; in particular it is not a violation. Reporting violations (`unsafe`) would need evidence beyond AE's state, such as a replayed witness, and is out of scope.
 
@@ -67,7 +67,12 @@ struct SourceLocation { std::string file; unsigned line = 0, column = 0; std::st
 
 struct Evidence { std::string name; std::optional<IntervalValue> value; };  // e.g. "condition", "offset", "size"
 
-struct Site { const ICFGNode* node; const SVFStmt* stmt; std::string kind; };  // stmt null for call sites
+struct Site {
+    const ICFGNode* node;
+    const SVFStmt* stmt;  // null for call sites
+    std::string kind;
+    std::optional<unsigned> sourceLineArgument = std::nullopt;
+};
 
 struct Result {
     Site site;
@@ -83,10 +88,10 @@ public:
     bool reached(const ICFGNode* node) const;
     std::optional<IntervalValue> interval(const ValVar* var, const ICFGNode* node) const;
     std::optional<AddressValue> addresses(const ValVar* var, const ICFGNode* node) const;
-    const BaseObjVar* baseObject(u32_t address, const ICFGNode* node) const;
+    std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const;
+    const BaseObjVar* baseObject(NodeID id) const;
     std::optional<IntervalValue> byteSize(const BaseObjVar* obj) const;
-    std::optional<IntervalValue> byteOffset(const ValVar* pointer, u32_t address,
-                                            const ICFGNode* node) const;
+    IntervalValue constantGepByteOffset(const GepStmt* gep) const;
 };
 
 StateView runAbstractExecution(const PAG& pag); // starts the process-wide AE singleton once
@@ -124,12 +129,12 @@ svf-verifier -property=reach[,overflow] [AE options, e.g. -ae-sparsity=sparse] i
 
 The tool writes one report per run (stdout by default). It is complete on its own:
 
-- `schema_version`, tool version and commit, SVF version, the command line, the AE mode;
-- `status` (`ok` / `error`) and the time;
+- `schema_version`, tool and SVF versions and commits, the exact LLVM version, the command line, and the AE mode;
+- `status` (`ok`) and the time;
 - per site: property, kind, location, verdict, reason, evidence (named intervals);
 - per property: the program verdict (`proved` if every site is `proved`, otherwise `unproved`).
 
-The schema is documented in `docs/report.md`, with an example. SVF's own console output goes to stderr via its C++ stream. Bad-usage reports go to stdout because the output option may be invalid or may alias an input. Standalone help prints usage.
+The schema is documented in `docs/report.md`, with an example. SVF's analysis output and failure diagnostics go to stderr. The tool writes the report on success. Standalone help prints usage.
 
 ### Exit status
 
@@ -173,7 +178,7 @@ No two files share a name. `.hpp` files are included only by `main.cpp` and by e
 
 ## Build and test
 
-- The root Dockerfile is the reference build. It installs pinned SVF and builds the verifier with the same LLVM 22 toolchain, then runs CTest before packaging the runtime. Manual builds use `cmake -DSVF_DIR=<svf-install>/lib/cmake/SVF ..` and the same C++ compiler as SVF.
+- The root Dockerfile is the reference build. It is tested with SVF `master` and defaults to LLVM 22. It uses one compiler for SVF and the verifier, then runs CTest before packaging the runtime. The report's `svf_commit` identifies the exact revision. Manual builds use `cmake -DSVF_DIR=<svf-install>/lib/cmake/SVF ..` and the same C++ compiler as SVF.
 - `ctest` compiles each `tests/**/*.c` with the canonical command, runs `svf-verifier` in all three AE modes, and compares against the expected verdicts written in the test file (for example `// EXPECT: line 6 proved`). Tests cover each row of each verdict table.
 - AE's known false results (for example an array read with an unbounded index) are not tests here.
 

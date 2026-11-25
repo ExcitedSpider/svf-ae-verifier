@@ -23,12 +23,7 @@ public:
             for (const auto& site : property->sites(icfg))
             {
                 auto result = property->check(site, state);
-                const auto* function = site.node->getFun();
-                auto location = parseSourceLocation(site.node->getSourceLoc(),
-                                                    function ? function->getName() : "");
-                if (result.location.line)
-                    location.line = result.location.line;
-                result.location = std::move(location);
+                result.location = sourceLocation(site);
                 group.sites.push_back(std::move(result));
             }
         }

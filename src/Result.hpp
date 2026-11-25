@@ -2,7 +2,9 @@
 
 #include "AE/Core/IntervalValue.h"
 #include "Graphs/ICFGNode.h"
+#include "SVFValues/SVFVariables.h"
 #include <charconv>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -49,7 +51,25 @@ struct Site {
     const ICFGNode* node;
     const SVFStmt* stmt;
     std::string kind;
+    std::optional<unsigned> sourceLineArgument = std::nullopt;
 };
+
+inline SourceLocation sourceLocation(const Site& site)
+{
+    const auto* function = site.node->getFun();
+    auto location = parseSourceLocation(site.node->getSourceLoc(), function ? function->getName() : "");
+    if (site.sourceLineArgument)
+    {
+        const auto* call = SVFUtil::cast<CallICFGNode>(site.node);
+        if (*site.sourceLineArgument < call->arg_size())
+        {
+            const auto* line = SVFUtil::dyn_cast<ConstIntValVar>(call->getArgument(*site.sourceLineArgument));
+            if (line && line->getZExtValue() > 0 && line->getZExtValue() <= std::numeric_limits<unsigned>::max())
+                location.line = line->getZExtValue();
+        }
+    }
+    return location;
+}
 
 struct Result {
     Site site;

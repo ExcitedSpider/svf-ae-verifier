@@ -1,23 +1,23 @@
 # JSON report
 
-The verifier writes one JSON object. Analysis diagnostics go to stderr. Reports go to stdout by default or to the path given with `-o`. Bad-usage reports always go to stdout. Standalone help prints usage. A fatal signal or a report output failure can prevent report creation.
+After a successful analysis the verifier writes one JSON object to stdout by default or to the path given with `-o`. Diagnostics go to stderr. Standalone help prints usage.
 
 | Field | Meaning |
 |---|---|
 | `schema_version` | Integer report format version, currently `1`. |
 | `tool_version`, `tool_commit` | Verifier version and Git commit captured at configuration. Builds without Git metadata can pass `-DVERIFIER_GIT_COMMIT=<sha>`. If neither source is available, the revision is `unknown`. |
-| `svf_version`, `svf_commit` | SVF package version and supported revision. |
+| `svf_version`, `svf_commit` | SVF package version and exact source revision. The revision is `unknown` when build metadata is unavailable. |
+| `llvm_version` | Exact LLVM package version used to build the verifier. |
 | `command_line` | Original argument vector, including the invoked executable. |
-| `ae_mode` | `dense`, `semi-sparse` or `sparse`. It is null if options could not be parsed. |
-| `status` | `ok` for a finished analysis, `error` for a reported failure. |
+| `ae_mode` | `dense`, `semi-sparse` or `sparse`. |
+| `status` | `ok` for a finished analysis. |
 | `time_unix_ms` | Report completion time in milliseconds since the Unix epoch. |
-| `error` | Diagnostic summary on an error report. |
 | `properties` | Object mapping property names to program verdicts. |
 | `sites` | Array with a record for every reported site. |
 
 Each site has `property`, `kind`, `location`, `verdict`, `reason` and `evidence`. Location contains `file`, `line`, `column` and `function`. Unknown numbers use zero and unknown strings are empty. Reach intrinsics can supply a source line independent of debug columns.
 
-Evidence contains named intervals, represented by two inclusive bounds or null for unavailable values. Finite bounds are JSON integers. Infinite bounds use the strings `"-inf"` and `"+inf"`. Overflow evidence uses `width` and per-target `offset.<address>` and `size.<address>` keys. Addresses are SVF abstract identifiers local to the run.
+Evidence contains named intervals, represented by two inclusive bounds or null for unavailable values. Finite bounds are JSON integers. Infinite bounds use the strings `"-inf"` and `"+inf"`. Overflow evidence uses `width` and per-target `offset.<object-id>` and `size.<object-id>` keys. SVF object IDs are local to the run.
 
 ## Example
 
@@ -30,8 +30,10 @@ This report was emitted for `verifier_assert(1)` on line 5 of `example.c` after 
     "./svf-verifier",
     "-property=reach",
     "-ae-sparsity=sparse",
-    "example.ll"
+    "example.ll",
+    "-stat=false"
   ],
+  "llvm_version": "22.1.8",
   "properties": {
     "reach": "proved"
   },
@@ -59,8 +61,8 @@ This report was emitted for `verifier_assert(1)` on line 5 of `example.c` after 
   "status": "ok",
   "svf_commit": "a8a0f5181748059c2df2281e5e4ada63ccda3832",
   "svf_version": "3.4",
-  "time_unix_ms": 1795563783565,
-  "tool_commit": "397bb90e9e3c26bcbfdae8aa7a368c4c9356930f",
+  "time_unix_ms": 1795565984309,
+  "tool_commit": "unknown",
   "tool_version": "0.1.0"
 }
 ```

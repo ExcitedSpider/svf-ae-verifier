@@ -59,11 +59,17 @@ public:
         bool someOut = false;
         for (const auto address : *targets)
         {
-            const auto* base = state.baseObject(address, site.node);
+            const auto id = state.objectId(address, site.node);
+            if (!id)
+            {
+                missing = true;
+                continue;
+            }
+            const auto* base = state.baseObject(*id);
             hasObject |= base != nullptr;
-            const auto offset = state.byteOffset(pointer, address, site.node);
+            const auto offset = base ? byteOffset(pointer, *id, *base, state) : std::nullopt;
             const auto size = state.byteSize(base);
-            const auto target = std::to_string(address);
+            const auto target = std::to_string(*id);
             result.evidence.push_back({"offset." + target, offset});
             result.evidence.push_back({"size." + target, size});
             if (!offset || !size || !width)
@@ -88,6 +94,50 @@ public:
         else
             result.reason = "ae-bounds-unknown";
         return result;
+    }
+
+private:
+    static const SVFStmt* definition(const ValVar* pointer)
+    {
+        const SVFStmt* result = nullptr;
+        for (const auto* edge : pointer->getInEdges())
+        {
+            // A store uses the pointer as an address.
+            if (SVFUtil::isa<StoreStmt>(edge))
+                continue;
+            if (result)
+                return nullptr;
+            result = edge;
+        }
+        return result;
+    }
+
+    static const BaseObjVar* directObject(const SVFStmt* def)
+    {
+        const auto* addr = def ? SVFUtil::dyn_cast<AddrStmt>(def) : nullptr;
+        return addr ? SVFUtil::dyn_cast<BaseObjVar>(addr->getRHSVar()) : nullptr;
+    }
+
+    static std::optional<IntervalValue> byteOffset(const ValVar* pointer, NodeID target,
+                                                  const BaseObjVar& base, const StateView& state)
+    {
+        const auto* def = definition(pointer);
+        if (target == base.getId() && directObject(def) == &base)
+            return IntervalValue(0);
+        const auto* gep = def ? SVFUtil::dyn_cast<GepStmt>(def) : nullptr;
+        if (!gep || !gep->isConstantOffset() || directObject(definition(gep->getRHSVar())) != &base)
+            return std::nullopt;
+        const auto* node = gep->getICFGNode();
+        const auto source = state.addresses(gep->getRHSVar(), node);
+        if (!source || source->size() != 1 || state.objectId(*source->begin(), node) != base.getId())
+            return std::nullopt;
+        for (const auto& step : gep->getOffsetVarAndGepTypePairVec())
+            if (!step.second || !SVFUtil::isa<SVFPointerType, SVFArrayType>(step.second))
+                return std::nullopt;
+        // The constant helper saturates at the field limit and omits struct padding.
+        const auto offset = state.constantGepByteOffset(gep);
+        return offset.ub().geq(BoundedInt(Options::MaxFieldLimit())) ? std::nullopt
+                                                                  : std::optional{offset};
     }
 };
 

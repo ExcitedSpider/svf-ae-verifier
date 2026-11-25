@@ -1,8 +1,16 @@
 cmake_minimum_required(VERSION 3.20)
 project(svf-ae-verifier VERSION 0.1.0 LANGUAGES C CXX)
 
-set(SVF_COMMIT a8a0f5181748059c2df2281e5e4ada63ccda3832 CACHE STRING "SVF source revision")
-find_package(SVF 3.4 CONFIG REQUIRED)
+find_package(SVF CONFIG REQUIRED)
+set(SVF_COMMIT "" CACHE STRING "Source commit of the installed SVF")
+if(EXISTS "${SVF_INSTALL_PREFIX}/SVF_COMMIT")
+    file(STRINGS "${SVF_INSTALL_PREFIX}/SVF_COMMIT" svf_commit LIMIT_COUNT 1)
+else()
+    set(svf_commit "${SVF_COMMIT}")
+endif()
+if(NOT svf_commit)
+    set(svf_commit unknown)
+endif()
 set(VERIFIER_GIT_COMMIT "" CACHE STRING "Source commit for a build without Git metadata")
 set(verifier_commit "${VERIFIER_GIT_COMMIT}")
 if(NOT verifier_commit)
@@ -22,7 +30,8 @@ target_compile_features(svf-verifier PRIVATE cxx_std_17)
 target_link_libraries(svf-verifier PRIVATE SVF::SvfLLVM)
 target_compile_definitions(svf-verifier PRIVATE
     VERIFIER_VERSION="${PROJECT_VERSION}" VERIFIER_COMMIT="${verifier_commit}"
-    VERIFIER_SVF_VERSION="${SVF_VERSION}" VERIFIER_SVF_COMMIT="${SVF_COMMIT}"
+    VERIFIER_SVF_VERSION="${SVF_VERSION}" VERIFIER_SVF_COMMIT="${svf_commit}"
+    VERIFIER_LLVM_VERSION="${LLVM_PACKAGE_VERSION}"
     VERIFIER_EXTAPI_PATH="${SVF_INSTALL_EXTAPI_BC}")
 
 include(CTest)

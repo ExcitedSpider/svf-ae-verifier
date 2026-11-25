@@ -40,4 +40,4 @@ Offsets are available for direct base addresses and some single constant GEPs fr
 | AE exposes no resolvable object | unproved | `ae-object-unknown` |
 | A possible target has a modeled access range entirely outside the allowed bounds or crossing a bound for all its modeled offsets | unproved | `ae-out-of-bounds-if-reached` |
 | Every modeled target's full access range fits | proved | `ae-in-bounds` |
-| Other bounds evidence, including missing offsets, sizes or widths | unproved | `ae-bounds-unknown` |
+| Other bounds evidence, including missing offsets, sizes or widths. Any heap target makes a proof unavailable. | unproved | `ae-bounds-unknown` |
