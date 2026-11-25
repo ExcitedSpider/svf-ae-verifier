@@ -41,6 +41,14 @@ jobs:
             fi
           done
 
+      - name: keep target facts out of the state view
+        shell: bash
+        run: |
+          if grep -nE '#[[:space:]]*include[[:space:]]*[<"]([^">]*/)?(TargetFacts|GepLayout)[.]hpp[">]' src/StateView.hpp; then
+            echo "::error::StateView must not include target facts"
+            exit 1
+          fi
+
       - name: no host paths in committed files
         shell: bash
         run: |

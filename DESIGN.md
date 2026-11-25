@@ -88,14 +88,15 @@ The canonical compilation is SVF's usual one: `clang -g -S -emit-llvm -Xclang -d
 
 | Module | Owns | Does not |
 |---|---|---|
-| `StateView` | AE startup and guarded queries of the final state. Queries cover whether a node was reached, a value's interval, a pointer's address set, and object bounds. The value queries use SVF's virtual def-site lookup in the sparse modes. | Change the final state or trace during a query. |
-| `Property` | An interface: which ICFG nodes are sites, and how one site is decided from a `StateView`. | Know about other properties, files, options or JSON. |
+| `StateView` | AE startup and guarded queries of the final state and PAG, including fixed object bounds. The value queries use SVF's virtual def-site lookup in the sparse modes. | Change the final state or trace during a query, or hold target facts. |
+| `TargetFacts` | Plain target layout facts populated by the LLVM layout bridge. | Query AE or include LLVM. |
+| `Property` | An interface: which ICFG nodes are sites, and how one site is decided from a `StateView` and `TargetFacts`. | Know about other properties, files, options or JSON. |
 | `Reachability`, `BufferOverflow` | One file each: site discovery and the verdict table for that property. | Contain evaluation oracles (`SAFE_BUFACCESS`, expected labels, and so on). |
 | `Result` | A site's location, kind, verdict, reason, and evidence. | Hold property-specific fields. |
 | `Verifier` | Runs the selected properties over the ICFG after AE has finished and groups `Result`s by property, including selected properties with no sites. | Do I/O or set up SVF. |
 | `svf-verifier` (tool) | Options, loading the module, the AE setup, running the `Verifier`, writing the **complete** report. | Decide verdicts. |
 
-Only headers under `src/llvm/` may use LLVM, and only `main.cpp` includes those headers. The layout bridge builds a table of plain GEP layout facts once after the PAG is built. `StateView` exposes those facts to properties alongside its read-only AE queries. The overflow property owns the index interval reads and offset arithmetic.
+Only headers under `src/llvm/` may use LLVM, and only `main.cpp` includes those headers. The layout bridge builds `TargetFacts` once after the PAG is built, including GEP layouts and the target's wide-character size. Properties receive those facts separately from read-only AE queries. The overflow property owns allocator sizing, index interval reads and offset arithmetic.
 
 ### Interfaces (sketch)
 
@@ -125,24 +126,23 @@ struct Result {
 
 class StateView {
 public:
-    StateView(AbstractInterpretation& ae, const PAG& pag, const GepLayouts& layouts);
+    StateView(AbstractInterpretation& ae, const PAG& pag);
     bool reached(const ICFGNode* node) const;
     std::optional<IntervalValue> interval(const ValVar* var, const ICFGNode* node) const;
     std::optional<AddressValue> addresses(const ValVar* var, const ICFGNode* node) const;
     std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const;
     const BaseObjVar* baseObject(NodeID id) const;
-    std::optional<IntervalValue> byteSize(const BaseObjVar* obj) const;
-    const GepLayout* gepLayout(const GepStmt* gep) const;
+    std::optional<IntervalValue> fixedByteSize(const BaseObjVar* obj) const;
 };
 
-StateView runAbstractExecution(const PAG& pag, const GepLayouts& layouts);
+StateView runAbstractExecution(const PAG& pag);
 
 class Property {
 public:
     virtual ~Property() = default;
     virtual std::string_view name() const = 0;
     virtual std::vector<Site> sites(const ICFG& icfg) const = 0;
-    virtual Result check(const Site& site, const StateView& state) const = 0;
+    virtual Result check(const Site& site, const StateView& state, const TargetFacts& target) const = 0;
 };
 
 struct PropertyResults { std::string name; std::vector<Result> sites; };
@@ -150,7 +150,7 @@ struct PropertyResults { std::string name; std::vector<Result> sites; };
 class Verifier {
 public:
     void add(std::unique_ptr<Property> property);
-    std::vector<PropertyResults> run(const ICFG& icfg, const StateView& state) const;
+    std::vector<PropertyResults> run(const ICFG& icfg, const StateView& state, const TargetFacts& target) const;
 };
 
 }
@@ -200,7 +200,7 @@ svf-ae-verifier/
 │   └── verifier.h                # property language for users' C code (macros, intrinsics, nondet)
 ├── src/
 │   ├── main.cpp                  # options, module/PAG setup, AE, properties and reporting
-│   ├── GepLayout.hpp             # plain per-GEP layout facts
+│   ├── TargetFacts.hpp           # plain target and per-GEP layout facts
 │   ├── llvm/Layout.hpp           # reads target layout before AE
 │   ├── Verifier.hpp              # runs properties over the ICFG after AE
 │   ├── Property.hpp              # Property interface, Site
