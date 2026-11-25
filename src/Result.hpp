@@ -52,6 +52,7 @@ struct Site {
     const SVFStmt* stmt;
     std::string kind;
     std::optional<unsigned> sourceLineArgument = std::nullopt;
+    std::string callee;
 };
 
 inline SourceLocation sourceLocation(const Site& site)

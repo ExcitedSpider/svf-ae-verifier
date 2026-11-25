@@ -21,9 +21,11 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 | Property | Sites | Proved when |
 |---|---|---|
 | `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same finite singleton). Error sites always remain unproved. |
-| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single GEPs from a direct base using AE index intervals and target layout. Heap targets leave the site unproved. |
+| `overflow` | loads, stores, and individual read/write accesses at direct calls annotated by SVF as memory operations | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single GEPs from a direct base using AE index intervals and target layout. A call also needs a sound byte-length bound. |
 
 Every other situation is `unproved`, with a reason saying what AE saw (for example `ae-must-fail-if-reached` when the condition is `[0, 0]`). Verdicts are `proved` and `unproved` only. `Proved` is sound with respect to AE: every execution AE models satisfies the check. `Unproved` claims nothing; in particular it is not a violation. Reporting violations (`unsafe`) would need evidence beyond AE's state, such as a replayed witness, and is out of scope.
+
+The overflow property uses SVF's lookup-only annotation predicate and reads explicit byte count intervals through `StateView`. The pinned `getStrlen` calls `PAG::getGepObjVar`, which can create field objects, and `getStrncatLength` calls `getStrlen`. String queries that depend on those helpers stay unknown.
 
 The property language for `reach` is shipped with the tool as `include/verifier.h` (macros, intrinsics, nondet functions, `verifier_assume`) and specified in `docs/properties.md`. Users include it; nothing depends on an external kit.
 

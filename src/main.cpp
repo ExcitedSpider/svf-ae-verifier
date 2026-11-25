@@ -79,6 +79,8 @@ void addResults(Object& report, const std::vector<PropertyResults>& results)
                                              {"column", loc.column}, {"function", loc.function}}},
                          {"reason", site.reason}, {"verdict", verdictName(site.verdict)},
                          {"evidence", std::move(evidence)}};
+            if (!site.site.callee.empty())
+                entry["callee"] = site.site.callee;
             sites.push_back(std::move(entry));
         }
         properties[property.name] = verdictName(verdict);
