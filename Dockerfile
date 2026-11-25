@@ -74,6 +74,8 @@ RUN cmake -S . -B /build/verifier -G Ninja -DCMAKE_BUILD_TYPE=Release \
 
 FROM llvm-runtime AS runtime
 
+LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 # ILP32 (-m32) inputs need the i386 libc development headers. Debian provides
 # them for amd64 only, so arm64 images compile LP64 inputs only.
 RUN if [ "$(dpkg --print-architecture)" = amd64 ]; then \
@@ -88,5 +90,7 @@ COPY --from=svf /opt/svf/SVF_COMMIT /opt/svf/LLVM_VERSION /opt/svf/
 COPY --from=build /opt/svf/VERIFIER_COMMIT /opt/svf/
 COPY include/verifier.h /usr/local/include/
 COPY schema/report.schema.json /usr/local/share/svf-ae-verifier/
+COPY LICENSE /usr/local/share/licenses/svf-ae-verifier/LICENSE
+COPY --from=svf /src/svf/LICENSE.TXT /usr/local/share/licenses/svf/LICENSE.TXT
 WORKDIR /work
 CMD ["svf-verifier", "--help"]

@@ -69,3 +69,7 @@ ctest --test-dir build --output-on-failure
 CTest compiles fixtures and checks all three modes. On Linux the test harness requires Bash and `timeout` to apply the 120-second and 4 GiB virtual-memory limits.
 
 [Property language and verdicts](docs/properties.md) · [JSON report format and example](docs/report.md) · [JSON Schema](schema/report.schema.json)
+
+## License
+
+The verifier is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). It links [SVF](https://github.com/SVF-tools/SVF), which is under the same license. The container image ships both license texts under `/usr/local/share/licenses/`.
