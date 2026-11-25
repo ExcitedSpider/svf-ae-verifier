@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(svf-ae-verifier VERSION 0.1.0 LANGUAGES C CXX)
 
-set(SVF_COMMIT a8a0f5181748059c2df2281e5e4ada63ccda3832)
+set(SVF_COMMIT a8a0f5181748059c2df2281e5e4ada63ccda3832 CACHE STRING "SVF source revision")
 find_package(SVF 3.4 CONFIG REQUIRED)
 set(VERIFIER_GIT_COMMIT "" CACHE STRING "Source commit for a build without Git metadata")
 set(verifier_commit "${VERIFIER_GIT_COMMIT}")

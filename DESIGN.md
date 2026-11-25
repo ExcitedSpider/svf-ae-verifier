@@ -173,7 +173,7 @@ No two files share a name. `.hpp` files are included only by `main.cpp` and by e
 
 ## Build and test
 
-- Build against an installed SVF: `cmake -DSVF_DIR=<svf-install>/lib/cmake/SVF ..`. The supported SVF commit is recorded in `CMakeLists.txt` and the README. A container recipe may be provided, but is not required.
+- The root Dockerfile is the reference build. It installs pinned SVF and builds the verifier with the same LLVM 22 toolchain, then runs CTest before packaging the runtime. Manual builds use `cmake -DSVF_DIR=<svf-install>/lib/cmake/SVF ..` and the same C++ compiler as SVF.
 - `ctest` compiles each `tests/**/*.c` with the canonical command, runs `svf-verifier` in all three AE modes, and compares against the expected verdicts written in the test file (for example `// EXPECT: line 6 proved`). Tests cover each row of each verdict table.
 - AE's known false results (for example an array read with an unbounded index) are not tests here.
 

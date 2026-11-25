@@ -2,7 +2,22 @@
 
 `svf-verifier` checks reachability assertions and load/store bounds using the final states computed by SVF abstract execution. It emits one JSON report per run with a verdict for each site and each selected property. `proved` means the check holds in the available AE model. `unproved` means the tool did not establish the check.
 
-## Build
+## Build and run in a container
+
+The Dockerfile is the reference build. It builds pinned SVF and the verifier with the same LLVM 22 compiler and runs CTest during the build.
+
+```sh
+docker build -t svf-ae-verifier .
+docker run --rm --memory=4g --memory-swap=4g -v "$PWD:/input:ro" svf-ae-verifier \
+  sh -ec 'clang -g -S -emit-llvm -Xclang -disable-O0-optnone -fno-discard-value-names \
+    /input/tests/reach/conditions.c -o input.raw.ll
+  opt -S -p=mem2reg input.raw.ll -o input.ll
+  timeout 120 svf-verifier -property=reach -ae-sparsity=sparse input.ll'
+```
+
+The same commands work with `podman` in place of `docker`. On SELinux hosts use `:ro,Z` for the bind mount if needed.
+
+## Manual build against installed SVF
 
 Use LLVM 22, CMake, Ninja, Z3 development files and the same Clang C++ compiler for SVF and the verifier. Matching compilers keeps SVF's option registry shared across both. The supported SVF revision is `a8a0f5181748059c2df2281e5e4ada63ccda3832` (SVF 3.4). Run these commands from the verifier checkout in a development environment with LLVM 22 on `PATH`.
 
