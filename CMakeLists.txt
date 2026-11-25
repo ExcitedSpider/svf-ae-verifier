@@ -40,6 +40,35 @@ if(BUILD_TESTING)
     find_program(OPT_EXECUTABLE opt HINTS "${LLVM_TOOLS_BINARY_DIR}" REQUIRED)
     find_program(BASH_EXECUTABLE bash REQUIRED)
     find_program(TIMEOUT_EXECUTABLE timeout REQUIRED)
+
+    # Validate every test report against schema/report.schema.json when Python's
+    # jsonschema is available. The container build requires it.
+    option(VERIFIER_REQUIRE_SCHEMA_CHECK "Fail configuration if reports cannot be schema-checked" OFF)
+    set(schema_python "")
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import jsonschema"
+            RESULT_VARIABLE jsonschema_missing OUTPUT_QUIET ERROR_QUIET)
+        if(NOT jsonschema_missing)
+            set(schema_python "${Python3_EXECUTABLE}")
+        endif()
+    endif()
+    if(NOT schema_python)
+        if(VERIFIER_REQUIRE_SCHEMA_CHECK)
+            message(FATAL_ERROR "Schema checks need python3 with the jsonschema module")
+        endif()
+        message(WARNING "python3 with jsonschema not found: reports are not schema-checked")
+    endif()
+    set(schema_args "-Dpython=${schema_python}"
+        "-Dvalidator=${CMAKE_CURRENT_SOURCE_DIR}/tests/validate-report.py"
+        "-Dschema=${CMAKE_CURRENT_SOURCE_DIR}/schema/report.schema.json")
+    if(schema_python)
+        add_test(NAME schema.check COMMAND "${CMAKE_COMMAND}" ${schema_args}
+            "-Ddocs=${CMAKE_CURRENT_SOURCE_DIR}/docs/report.md"
+            "-Dfixtures=${CMAKE_CURRENT_SOURCE_DIR}/tests/schema"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check-schema.cmake")
+    endif()
+
     foreach(property IN ITEMS reach overflow)
         file(GLOB cases CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tests/${property}/*.c"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/${property}/*.ll")
@@ -54,6 +83,7 @@ if(BUILD_TESTING)
                     "-Dinc=${CMAKE_CURRENT_SOURCE_DIR}/include"
                     "-Dclang=${CLANG_EXECUTABLE}" "-Dopt=${OPT_EXECUTABLE}"
                     "-Dbash=${BASH_EXECUTABLE}" "-Dtimeout=${TIMEOUT_EXECUTABLE}"
+                    ${schema_args}
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check-report.cmake")
                 set_tests_properties("${test_name}" PROPERTIES LABELS "${property};${mode}" TIMEOUT 130)
             endforeach()

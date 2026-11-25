@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ExcitedSpider/svf-ae-verifier/schema/report.schema.json",
+  "title": "svf-ae-verifier report",
+  "description": "The JSON report svf-verifier writes after a successful analysis (schema_version 1). See docs/report.md. A run that fails writes no report and exits non-zero.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tool_version",
+    "tool_commit",
+    "svf_version",
+    "svf_commit",
+    "llvm_version",
+    "command_line",
+    "ae_mode",
+    "status",
+    "time_unix_ms",
+    "properties",
+    "sites"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "tool_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_commit": {
+      "$ref": "#/$defs/revision"
+    },
+    "svf_version": {
+      "type": "string"
+    },
+    "svf_commit": {
+      "$ref": "#/$defs/revision"
+    },
+    "llvm_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command_line": {
+      "description": "Original argument vector, including the invoked executable.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "ae_mode": {
+      "enum": ["dense", "semi-sparse", "sparse"]
+    },
+    "status": {
+      "const": "ok"
+    },
+    "time_unix_ms": {
+      "description": "Report completion time in milliseconds since the Unix epoch.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "properties": {
+      "description": "Program verdict for each selected property: proved only if every site of that property is proved (a property with no sites is proved).",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/propertyName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/verdict"
+      }
+    },
+    "sites": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/site"
+      }
+    }
+  },
+  "$defs": {
+    "revision": {
+      "description": "A Git commit, or \"unknown\" when build metadata was unavailable.",
+      "type": "string",
+      "minLength": 1
+    },
+    "propertyName": {
+      "enum": ["reach", "overflow"]
+    },
+    "verdict": {
+      "description": "proved: every execution AE models satisfies the check. unproved claims nothing; in particular it is not a violation.",
+      "enum": ["proved", "unproved"]
+    },
+    "bound": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "enum": ["-inf", "+inf"]
+        }
+      ]
+    },
+    "interval": {
+      "description": "Inclusive bounds [lower, upper], or null when the value is unavailable.",
+      "oneOf": [
+        {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/bound"
+            },
+            {
+              "$ref": "#/$defs/bound"
+            }
+          ],
+          "items": false,
+          "minItems": 2
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "location": {
+      "description": "Source location from debug information. Unknown numbers are 0 and unknown strings are empty.",
+      "type": "object",
+      "required": ["file", "line", "column", "function"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "function": {
+          "type": "string"
+        }
+      }
+    },
+    "site": {
+      "type": "object",
+      "required": ["property", "kind", "location", "verdict", "reason", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "property": {
+          "$ref": "#/$defs/propertyName"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "property": {
+                "const": "reach"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/reachSite"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "property": {
+                "const": "overflow"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/overflowSite"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "proved"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "enum": ["ae-condition-true", "ae-in-bounds"]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "reason": {
+                "not": {
+                  "enum": ["ae-condition-true", "ae-in-bounds"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "reachSite": {
+      "properties": {
+        "kind": {
+          "enum": ["verifier_assert", "verifier_eq", "verifier_unreachable", "reach_error"]
+        },
+        "reason": {
+          "enum": [
+            "ae-no-state",
+            "ae-reachable",
+            "ae-condition-unknown",
+            "ae-must-fail-if-reached",
+            "ae-condition-true"
+          ]
+        },
+        "evidence": {
+          "description": "verifier_assert and verifier_eq: condition; verifier_eq also lhs and rhs. Empty when AE has no state or the site is an error site.",
+          "propertyNames": {
+            "enum": ["condition", "lhs", "rhs"]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/interval"
+          }
+        }
+      }
+    },
+    "overflowSite": {
+      "properties": {
+        "kind": {
+          "enum": ["load", "store"]
+        },
+        "reason": {
+          "enum": [
+            "ae-no-state",
+            "ae-object-unknown",
+            "ae-bounds-unknown",
+            "ae-out-of-bounds-if-reached",
+            "ae-in-bounds"
+          ]
+        },
+        "evidence": {
+          "description": "width: access size in bytes. offset.<id> and size.<id>: byte offset into and byte size of each target object; SVF object IDs are local to the run.",
+          "propertyNames": {
+            "pattern": "^(width|(offset|size)\\.[0-9]+)$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/interval"
+          }
+        }
+      }
+    }
+  }
+}

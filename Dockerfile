@@ -48,6 +48,11 @@ RUN git init /src/svf \
 
 FROM svf AS build
 
+# Python's jsonschema validates every test report against schema/report.schema.json.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-jsonschema \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG VERIFIER_GIT_COMMIT
 ARG BUILD_JOBS
 WORKDIR /src/verifier
@@ -55,9 +60,12 @@ COPY CMakeLists.txt ./
 COPY include/ include/
 COPY src/ src/
 COPY tests/ tests/
+COPY schema/ schema/
+COPY docs/report.md docs/
 RUN cmake -S . -B /build/verifier -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DSVF_DIR=/opt/svf/lib/cmake/SVF -DLLVM_DIR="$(llvm-config --cmakedir)" \
         "-DVERIFIER_GIT_COMMIT=${VERIFIER_GIT_COMMIT}" \
+        -DVERIFIER_REQUIRE_SCHEMA_CHECK=ON \
     && cmake --build /build/verifier --parallel "${BUILD_JOBS}" \
     && ctest --test-dir /build/verifier --output-on-failure \
     && printf '%s\n' "${VERIFIER_GIT_COMMIT:-unknown}" > /opt/svf/VERIFIER_COMMIT
@@ -69,5 +77,6 @@ COPY --from=svf /opt/svf/lib/extapi.bc /opt/svf/lib/
 COPY --from=svf /opt/svf/SVF_COMMIT /opt/svf/LLVM_VERSION /opt/svf/
 COPY --from=build /opt/svf/VERIFIER_COMMIT /opt/svf/
 COPY include/verifier.h /usr/local/include/
+COPY schema/report.schema.json /usr/local/share/svf-ae-verifier/
 WORKDIR /work
 CMD ["svf-verifier", "--help"]
