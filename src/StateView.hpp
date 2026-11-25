@@ -43,11 +43,6 @@ public:
         return std::nullopt;
     }
 
-    IntervalValue constantGepByteOffset(const GepStmt* gep) const
-    {
-        return ae.getGepByteOffset(gep);
-    }
-
     std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const
     {
         if (!reached(node) || !AbstractState::isVirtualMemAddress(address))

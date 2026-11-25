@@ -4,6 +4,9 @@
 
 namespace SVF {
 
+// Layout information for this SVF statement is obtained at the LLVM boundary.
+std::optional<IntervalValue> gepByteOffset(const GepStmt& gep, const StateView& state);
+
 class BufferOverflow final : public Property {
 public:
     std::string_view name() const override { return "overflow"; }
@@ -77,10 +80,10 @@ public:
                 missing = true;
                 continue;
             }
-            const auto end = *offset + IntervalValue(width);
             const BoundedInt zero(0);
-            allIn &= offset->lb().geq(zero) && end.ub().leq(size->lb());
-            someOut |= offset->ub() < zero || end.lb() > size->ub();
+            const BoundedInt lastStart(size->lb().getNumeral() - static_cast<s64_t>(width));
+            allIn &= offset->lb().geq(zero) && offset->ub().leq(lastStart);
+            someOut |= offset->ub() < zero || offset->lb() > lastStart;
         }
         if (!hasObject)
             return result;
@@ -125,19 +128,13 @@ private:
         if (target == base.getId() && directObject(def) == &base)
             return IntervalValue(0);
         const auto* gep = def ? SVFUtil::dyn_cast<GepStmt>(def) : nullptr;
-        if (!gep || !gep->isConstantOffset() || directObject(definition(gep->getRHSVar())) != &base)
+        if (!gep || directObject(definition(gep->getRHSVar())) != &base)
             return std::nullopt;
         const auto* node = gep->getICFGNode();
         const auto source = state.addresses(gep->getRHSVar(), node);
         if (!source || source->size() != 1 || state.objectId(*source->begin(), node) != base.getId())
             return std::nullopt;
-        for (const auto& step : gep->getOffsetVarAndGepTypePairVec())
-            if (!step.second || !SVFUtil::isa<SVFPointerType, SVFArrayType>(step.second))
-                return std::nullopt;
-        // The constant helper saturates at the field limit and omits struct padding.
-        const auto offset = state.constantGepByteOffset(gep);
-        return offset.ub().geq(BoundedInt(Options::MaxFieldLimit())) ? std::nullopt
-                                                                  : std::optional{offset};
+        return gepByteOffset(*gep, state);
     }
 };
 

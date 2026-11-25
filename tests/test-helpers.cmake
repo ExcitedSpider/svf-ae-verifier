@@ -2,6 +2,10 @@ function(compile_case)
     file(MAKE_DIRECTORY "${work}")
     get_filename_component(case_dir "${case}" DIRECTORY)
     get_filename_component(case_name "${case}" NAME)
+    if(case_name MATCHES "\\.ll$")
+        configure_file("${case}" "${work}/input.ll" COPYONLY)
+        return()
+    endif()
     execute_process(COMMAND "${clang}" -g -S -emit-llvm -Xclang -disable-O0-optnone
         -fno-discard-value-names "-I${inc}" "${case_name}" -o "${work}/raw.ll"
         WORKING_DIRECTORY "${case_dir}" COMMAND_ERROR_IS_FATAL ANY)

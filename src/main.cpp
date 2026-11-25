@@ -4,19 +4,114 @@
 #include "SVF-LLVM/PAGBuilder.h"
 #include "Util/CommandLine.h"
 #include "WPA/Andersen.h"
+#include <llvm/IR/GetElementPtrTypeIterator.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/SourceMgr.h>
+#include <algorithm>
 #include <chrono>
 #include <cerrno>
+#include <cstdint>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
+
+namespace SVF {
+
+std::optional<IntervalValue> gepByteOffset(const GepStmt& gep, const StateView& state)
+{
+    auto& modules = *LLVMModuleSet::getLLVMModuleSet();
+    if (!modules.hasLLVMValue(gep.getLHSVar()))
+        return std::nullopt;
+    const auto* op = llvm::dyn_cast<llvm::GEPOperator>(modules.getLLVMValue(gep.getLHSVar()));
+    if (!op || op->getType()->isVectorTy() || !modules.hasValueNode(op->getPointerOperand())
+        || modules.getValueNode(op->getPointerOperand()) != gep.getRHSVar()->getId())
+        return std::nullopt;
+
+    const auto& layout = modules.getMainLLVMModule()->getDataLayout();
+    const auto bits = layout.getIndexSizeInBits(op->getPointerAddressSpace());
+    if (bits == 0 || bits > 64)
+        return std::nullopt;
+    // GEP can wrap at the pointer index width. Reject finite arithmetic that could
+    // wrap, and use wider intermediates so the verifier itself never wraps.
+    const auto limit = static_cast<__int128>(1) << (bits - 1);
+    auto accumulate = [limit](BoundedInt& sum, const BoundedInt& index, uint64_t stride) {
+        if (!stride || sum.is_infinity())
+            return true;
+        if (index.is_infinity())
+        {
+            sum = index;
+            return true;
+        }
+        const auto term = static_cast<__int128>(index.getNumeral()) * stride;
+        if (term < -limit || term >= limit)
+            return false;
+        const auto next = sum.getNumeral() + term;
+        if (next < -limit || next >= limit)
+            return false;
+        sum = BoundedInt(static_cast<s64_t>(next));
+        return true;
+    };
+
+    const auto& steps = gep.getOffsetVarAndGepTypePairVec();
+    if (steps.size() != op->getNumIndices())
+        return std::nullopt;
+    auto step = steps.begin();
+    BoundedInt lower(0), upper(0);
+    for (auto it = llvm::gep_type_begin(op); it != llvm::gep_type_end(op); ++it, ++step)
+    {
+        const auto* operand = it.getOperand();
+        const auto* constant = llvm::dyn_cast<llvm::ConstantInt>(operand);
+        if (auto* structure = it.getStructTypeOrNull())
+        {
+            if (!constant || !structure->isSized())
+                return std::nullopt;
+            const auto field = constant->getValue().getLimitedValue();
+            if (field >= structure->getNumElements())
+                return std::nullopt;
+            const auto offset = layout.getStructLayout(structure)->getElementOffset(field);
+            if (offset.isScalable() || !accumulate(lower, BoundedInt(1), offset.getFixedValue())
+                || !accumulate(upper, BoundedInt(1), offset.getFixedValue()))
+                return std::nullopt;
+            continue;
+        }
+        if (it.isVector() || !it.getIndexedType()->isSized())
+            return std::nullopt;
+        const auto stride = it.getSequentialElementStride(layout);
+        if (stride.isScalable())
+            return std::nullopt;
+        std::optional<IntervalValue> index;
+        if (constant)
+            index.emplace(static_cast<s64_t>(constant->getValue().sextOrTrunc(bits).getSExtValue()));
+        else if (step->first && modules.hasValueNode(operand)
+                 && modules.getValueNode(operand) == step->first->getId())
+            index = state.interval(step->first, gep.getICFGNode());
+        if (!index)
+            return std::nullopt;
+        if (!constant)
+        {
+            const auto indexBits = std::min(bits, operand->getType()->getIntegerBitWidth());
+            const auto indexLimit = static_cast<__int128>(1) << (indexBits - 1);
+            if ((!index->lb().is_infinity() && index->lb().getNumeral() < -indexLimit)
+                || (!index->ub().is_infinity() && index->ub().getNumeral() >= indexLimit))
+                return std::nullopt;
+            if ((!op->isInBounds() || indexBits < operand->getType()->getIntegerBitWidth())
+                && (index->lb().is_infinity() || index->ub().is_infinity()))
+                return std::nullopt;
+        }
+        if (!accumulate(lower, index->lb(), stride.getFixedValue())
+            || !accumulate(upper, index->ub(), stride.getFixedValue()))
+            return std::nullopt;
+    }
+    return IntervalValue(lower, upper);
+}
+
+} // namespace SVF
 
 namespace {
 

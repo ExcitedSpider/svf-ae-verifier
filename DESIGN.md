@@ -21,7 +21,7 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 | Property | Sites | Proved when |
 |---|---|---|
 | `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same finite singleton). Error sites always remain unproved. |
-| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single constant array or pointer GEPs from a direct base whose AE offset is below the field limit. Heap targets leave the site unproved. |
+| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single GEPs from a direct base using AE index intervals and target layout. Heap targets leave the site unproved. |
 
 Every other situation is `unproved`, with a reason saying what AE saw (for example `ae-must-fail-if-reached` when the condition is `[0, 0]`). Verdicts are `proved` and `unproved` only. `Proved` is sound with respect to AE: every execution AE models satisfies the check. `Unproved` claims nothing; in particular it is not a violation. Reporting violations (`unsafe`) would need evidence beyond AE's state, such as a replayed witness, and is out of scope.
 
@@ -188,7 +188,7 @@ From the PoC (`poc` branch, `REPORT.md`):
 
 - **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unproved`.
 - **`getGepObjAddrs` is not read-only.** It creates objects and changes the trace when called after the analysis, so `StateView` cannot use it.
-- **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier uses offsets only for direct base addresses and single constant GEPs with supported type steps and offsets below the limit.
+- **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier computes single-GEP offsets from AE index intervals and target layout without this helper.
 - **Dynamic extents.** The allocation-size helper also saturates at the field limit. The verifier uses the fixed byte size of non-heap objects and leaves other extents unknown.
 - **Source locations** are strings only.
 

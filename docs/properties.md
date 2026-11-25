@@ -32,7 +32,9 @@ The assume macro expresses a precondition in the input program. AE can still los
 
 The sites are loads and stores represented by SVF statements. Synthetic effects at call and return nodes are excluded. The verifier checks `[offset, offset + width)` against `[0, size)` for every abstract target. Width is the SVF byte size of the loaded or stored type.
 
-Offsets are available for direct base addresses and some single constant GEPs from direct base addresses. SVF's constant helper saturates at the field limit and omits struct padding. The verifier leaves offsets at the limit, struct GEPs, dynamic GEPs and chained GEPs unknown. Sizes are available for fixed-size non-heap objects.
+Offsets are available for direct base addresses and single GEPs whose source is the direct address of one object. Sequential steps use the index interval at the GEP and the element's allocation stride. Struct steps use the field's byte offset from the target layout, including padding. Arithmetic keeps negative offsets and infinities and leaves potentially wrapping finite offsets unknown. For example, the dense, semi-sparse, and sparse fixtures leave a guarded external index unproved when AE supplies no useful bounds for the GEP index.
+
+Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. This includes multidimensional source accesses when the compiler emits a chain instead of a single multistep GEP. Sizes are available for fixed-size non-heap objects.
 
 | Final state at the site | Verdict | Reason |
 |---|---|---|
