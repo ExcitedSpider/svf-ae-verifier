@@ -54,7 +54,7 @@ The canonical compilation is SVF's usual one: `clang -g -S -emit-llvm -Xclang -d
 | `Verifier` | Runs the selected properties over the ICFG after AE has finished and groups `Result`s by property, including selected properties with no sites. | Do I/O or set up SVF. |
 | `svf-verifier` (tool) | Options, loading the module, the AE setup, running the `Verifier`, writing the **complete** report. | Decide verdicts. |
 
-Every `.hpp` is LLVM-free: SVF IR and AE's public API only. LLVM appears only in `main.cpp`.
+Only headers under `src/llvm/` may use LLVM, and only `main.cpp` includes those headers. The layout bridge builds a table of plain GEP layout facts once after the PAG is built. `StateView` exposes those facts to properties alongside its read-only AE queries. The overflow property owns the index interval reads and offset arithmetic.
 
 ### Interfaces (sketch)
 
@@ -94,7 +94,7 @@ public:
     IntervalValue constantGepByteOffset(const GepStmt* gep) const;
 };
 
-StateView runAbstractExecution(const PAG& pag); // starts the process-wide AE singleton once
+StateView runAbstractExecution(const PAG& pag, const GepLayouts& layouts);
 
 class Property {
 public:
@@ -158,7 +158,9 @@ svf-ae-verifier/
 ├── include/
 │   └── verifier.h                # property language for users' C code (macros, intrinsics, nondet)
 ├── src/
-│   ├── main.cpp                  # the only .cpp: options, SVF + AE setup, report writing (only place using LLVM)
+│   ├── main.cpp                  # options, module/PAG setup, AE, properties and reporting
+│   ├── GepLayout.hpp             # plain per-GEP layout facts
+│   ├── llvm/Layout.hpp           # reads target layout before AE
 │   ├── Verifier.hpp              # runs properties over the ICFG after AE
 │   ├── Property.hpp              # Property interface, Site
 │   ├── StateView.hpp             # read-only queries of AE's final state; the only file that calls AE

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "GepLayout.hpp"
+
 #include "AE/Svfexe/AbstractInterpretation.h"
 #include "Graphs/PAG.h"
 #include <optional>
@@ -8,7 +10,14 @@ namespace SVF {
 
 class StateView {
 public:
-    explicit StateView(AbstractInterpretation& ae, const PAG& pag) : ae(ae), pag(pag) {}
+    StateView(AbstractInterpretation& ae, const PAG& pag, const GepLayouts& layouts)
+        : ae(ae), pag(pag), layouts(layouts) {}
+
+    const GepLayout* gepLayout(const GepStmt* gep) const
+    {
+        const auto it = layouts.find(gep);
+        return it == layouts.end() ? nullptr : &it->second;
+    }
 
     bool reached(const ICFGNode* node) const
     {
@@ -64,14 +73,15 @@ private:
 
     AbstractInterpretation& ae;
     const PAG& pag;
+    const GepLayouts& layouts;
 };
 
 // AE owns a process-wide singleton. Configure its mode before starting it.
-inline StateView runAbstractExecution(const PAG& pag)
+inline StateView runAbstractExecution(const PAG& pag, const GepLayouts& layouts)
 {
     auto& ae = AbstractInterpretation::getAEInstance();
     ae.runOnModule();
-    return StateView(ae, pag);
+    return StateView(ae, pag, layouts);
 }
 
 } // namespace SVF

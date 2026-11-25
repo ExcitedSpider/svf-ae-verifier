@@ -9,4 +9,5 @@ int main(void)
     return 0;
 }
 
+// This follows AE's interval at the GEP. AE does not narrow i on this guard today.
 // EXPECT: line 8 store unproved ae-bounds-unknown
