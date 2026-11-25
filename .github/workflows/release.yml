@@ -145,6 +145,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: v${{ env.LABEL }}
           body_path: release-notes.md
+          files: schema/report.schema.json
 
       - name: remove images
         if: always()

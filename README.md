@@ -66,4 +66,4 @@ ctest --test-dir build --output-on-failure
 
 CTest compiles fixtures and checks all three modes. On Linux the test harness requires Bash and `timeout` to apply the 120-second and 4 GiB virtual-memory limits.
 
-[Property language and verdicts](docs/properties.md) · [JSON report schema and example](docs/report.md)
+[Property language and verdicts](docs/properties.md) · [JSON report format and example](docs/report.md) · [JSON Schema](schema/report.schema.json)

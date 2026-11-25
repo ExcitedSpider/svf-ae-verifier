@@ -2,6 +2,8 @@
 
 After a successful analysis the verifier writes one JSON object to stdout by default or to the path given with `-o`. Diagnostics go to stderr. Standalone help prints usage.
 
+The machine-readable definition is [`schema/report.schema.json`](../schema/report.schema.json) (JSON Schema 2020-12). It fixes the field types, the verdicts, and the `kind`, `reason` and evidence keys allowed for each property; a new kind or reason needs a schema change. The container image ships it at `/usr/local/share/svf-ae-verifier/report.schema.json`, and each release attaches it. The test suite validates every report it produces against it, and a new `schema_version` means an incompatible change.
+
 | Field | Meaning |
 |---|---|
 | `schema_version` | Integer report format version, currently `1`. |

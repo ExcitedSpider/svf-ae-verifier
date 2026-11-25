@@ -168,12 +168,16 @@ svf-ae-verifier/
 │   └── properties/
 │       ├── Reachability.hpp      # reach sites + verdict table
 │       └── BufferOverflow.hpp    # overflow sites + verdict table
+├── schema/
+│   └── report.schema.json        # JSON Schema of the report; ctest validates every report against it
 ├── tests/
 │   ├── reach/*.c                 # each file states its expected verdicts
-│   └── overflow/*.c
+│   ├── overflow/*.c
+│   ├── schema/invalid/*.json     # reports the schema must reject
+│   └── validate-report.py        # schema check used by ctest
 └── docs/
     ├── properties.md             # property language and verdict tables
-    └── report.md                 # report schema + example
+    └── report.md                 # report fields + example
 ```
 
 No two files share a name. `.hpp` files are included only by `main.cpp` and by each other.
