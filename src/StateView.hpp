@@ -4,6 +4,7 @@
 
 #include "AE/Svfexe/AbstractInterpretation.h"
 #include "Graphs/PAG.h"
+#include "Util/Options.h"
 #include <optional>
 
 namespace SVF {
@@ -48,7 +49,14 @@ public:
     std::optional<IntervalValue> byteSize(const BaseObjVar* object) const
     {
         if (object && object->isConstantByteSize() && !object->isHeap())
-            return IntervalValue(object->getByteSizeOfObj());
+        {
+            const auto size = object->getByteSizeOfObj();
+            const auto limit = Options::MaxFieldLimit();
+            // SVF's cap makes an exact fit indistinguishable from a larger object.
+            if (size >= limit)
+                return IntervalValue(BoundedInt(limit), BoundedInt::plus_infinity());
+            return IntervalValue(size);
+        }
         return std::nullopt;
     }
 
