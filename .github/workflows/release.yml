@@ -1,0 +1,138 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, without "v". Must equal project(VERSION) in CMakeLists.txt.
+        required: true
+      svf_ref:
+        description: SVF branch, tag or commit to build against
+        default: master
+      platforms:
+        description: Space-separated image platforms
+        default: linux/amd64 linux/arm64
+      publish:
+        description: Push the image and create the GitHub release (false = build and test only)
+        type: boolean
+        default: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 720
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: check inputs
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::release only from main (got $GITHUB_REF)"; exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be MAJOR.MINOR.PATCH (got $VERSION)"; exit 1
+          fi
+          cmake_version="$(sed -nE 's/^project\(svf-ae-verifier VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
+          if [ "$cmake_version" != "$VERSION" ]; then
+            echo "::error::CMakeLists.txt has version $cmake_version, not $VERSION"; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" > /dev/null; then
+            echo "::error::tag v$VERSION already exists"; exit 1
+          fi
+          sha="$(git ls-remote https://github.com/SVF-tools/SVF.git "${{ inputs.svf_ref }}" | head -1 | cut -f1)"
+          if [ -z "$sha" ]; then
+            # Not a branch or tag name: treat it as a commit.
+            sha="${{ inputs.svf_ref }}"
+          fi
+          echo "SVF_SHA=$sha" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: build and test each platform
+        shell: bash
+        run: |
+          for platform in ${{ inputs.platforms }}; do
+            arch="${platform#linux/}"
+            echo "::group::build $platform"
+            # The build stage runs ctest; a failing test fails the release.
+            podman build --platform "$platform" \
+              --build-arg "SVF_REF=$SVF_SHA" \
+              --build-arg "VERIFIER_GIT_COMMIT=$GITHUB_SHA" \
+              -t "$IMAGE:$VERSION-$arch" .
+            echo "::endgroup::"
+            echo "::group::smoke test $platform"
+            bash .github/scripts/smoke-test.sh "$IMAGE:$VERSION-$arch" "$platform"
+            echo "::endgroup::"
+          done
+
+      - name: read build metadata
+        shell: bash
+        run: |
+          first="$(set -- ${{ inputs.platforms }}; echo "${1#linux/}")"
+          image="$IMAGE:$VERSION-$first"
+          {
+            echo "BUILT_SVF_COMMIT=$(podman run --rm "$image" cat /opt/svf/SVF_COMMIT)"
+            echo "BUILT_LLVM_VERSION=$(podman run --rm "$image" cat /opt/svf/LLVM_VERSION)"
+          } >> "$GITHUB_ENV"
+
+      - name: push image
+        if: inputs.publish
+        shell: bash
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman manifest rm "$IMAGE:$VERSION" 2>/dev/null || true
+          podman manifest create "$IMAGE:$VERSION"
+          for platform in ${{ inputs.platforms }}; do
+            podman push "$IMAGE:$VERSION-${platform#linux/}"
+            podman manifest add "$IMAGE:$VERSION" "docker://$IMAGE:$VERSION-${platform#linux/}"
+          done
+          podman manifest push --all "$IMAGE:$VERSION" "docker://$IMAGE:$VERSION"
+          podman manifest push --all "$IMAGE:$VERSION" "docker://$IMAGE:latest"
+
+      - name: release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<EOF
+          Container image: \`$IMAGE:$VERSION\` (${{ inputs.platforms }})
+
+          | Component | Version |
+          |---|---|
+          | svf-ae-verifier | \`$GITHUB_SHA\` |
+          | SVF | \`$BUILT_SVF_COMMIT\` |
+          | LLVM | $BUILT_LLVM_VERSION |
+
+          \`\`\`sh
+          docker pull $IMAGE:$VERSION
+          \`\`\`
+          EOF
+          cat release-notes.md
+
+      - name: create release
+        if: inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: v${{ inputs.version }}
+          body_path: release-notes.md
+
+      - name: remove images
+        if: always()
+        shell: bash
+        run: |
+          podman manifest rm "$IMAGE:$VERSION" 2>/dev/null || true
+          for platform in ${{ inputs.platforms }}; do
+            podman rmi -f "$IMAGE:$VERSION-${platform#linux/}" || true
+          done
