@@ -145,10 +145,10 @@ std::vector<PropertyResults> analyze(llvm::Module& module, const Verifier& verif
     LLVMModuleSet::buildSVFModule(module);
     PAGBuilder builder;
     auto* pag = builder.build();
-    const auto layouts = buildGepLayouts(*pag);
+    const auto target = readTargetFacts(module, *pag);
     auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
-    const auto state = runAbstractExecution(*pag, layouts, readWcharSize(module));
+    const auto state = runAbstractExecution(*pag, target.layouts, target.wcharSize);
     return verifier.run(*pag->getICFG(), state);
 }
 
