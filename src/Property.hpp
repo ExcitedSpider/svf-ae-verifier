@@ -2,6 +2,7 @@
 
 #include "Result.hpp"
 #include "StateView.hpp"
+#include "TargetFacts.hpp"
 #include "Graphs/ICFG.h"
 
 namespace SVF {

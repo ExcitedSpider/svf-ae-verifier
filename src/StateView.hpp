@@ -1,7 +1,5 @@
 #pragma once
 
-#include "TargetFacts.hpp"
-
 #include "AE/Svfexe/AbstractInterpretation.h"
 #include "Graphs/PAG.h"
 #include "Util/Options.h"
@@ -12,17 +10,7 @@ namespace SVF {
 
 class StateView {
 public:
-    StateView(AbstractInterpretation& ae, const PAG& pag, const GepLayouts& layouts,
-              std::optional<unsigned> wcharSize)
-        : ae(ae), pag(pag), layouts(layouts), wideSize(wcharSize) {}
-
-    std::optional<unsigned> wcharSize() const { return wideSize; }
-
-    const GepLayout* gepLayout(const GepStmt* gep) const
-    {
-        const auto it = layouts.find(gep);
-        return it == layouts.end() ? nullptr : &it->second;
-    }
+    StateView(AbstractInterpretation& ae, const PAG& pag) : ae(ae), pag(pag) {}
 
     bool reached(const ICFGNode* node) const
     {
@@ -128,17 +116,14 @@ private:
 
     AbstractInterpretation& ae;
     const PAG& pag;
-    const GepLayouts& layouts;
-    std::optional<unsigned> wideSize;
 };
 
 // AE owns a process-wide singleton. Configure its mode before starting it.
-inline StateView runAbstractExecution(const PAG& pag, const GepLayouts& layouts,
-                                      std::optional<unsigned> wcharSize)
+inline StateView runAbstractExecution(const PAG& pag)
 {
     auto& ae = AbstractInterpretation::getAEInstance();
     ae.runOnModule();
-    return StateView(ae, pag, layouts, wcharSize);
+    return StateView(ae, pag);
 }
 
 } // namespace SVF
