@@ -63,7 +63,7 @@ public:
                 length = state.interval(call->getArgument(*rule.count), call);
                 if (length && (length->lb().is_infinity() || length->lb() < BoundedInt(0)))
                     length.reset();
-                if (length && call->getCalledFunction()->getName() == "wmemset")
+                if (length && rule.wide)
                 {
                     const auto width = facts.wcharSize;
                     if (!width || (!length->ub().is_infinity() &&
@@ -119,7 +119,7 @@ public:
             }
             const auto* base = state.baseObject(*id);
             hasObject |= base != nullptr;
-            const auto offset = base ? byteOffset(pointer, *id, *base, state, facts) : std::nullopt;
+            const auto offset = base ? byteOffset(pointer, *base, state, facts) : std::nullopt;
             auto size = state.fixedByteSize(base);
             if (!size)
                 size = heapByteSize(base, state);
@@ -211,6 +211,7 @@ private:
         std::optional<unsigned> count;
         bool maximumOnly = false;
         bool sourceMaximum = false;
+        bool wide = false;
     };
 
     static std::optional<CallRule> memoryCall(const CallICFGNode& call)
@@ -228,7 +229,7 @@ private:
             return CallRule{0, 1, std::nullopt};
         if (annotated("MEMSET"))
             return CallRule{0, std::nullopt, 2,
-                            name == "__memset_chk"};
+                            name == "__memset_chk", false, name == "wmemset"};
         if (!annotated("MEMCPY"))
             return std::nullopt;
         if (name == "bcopy")
@@ -399,10 +400,9 @@ private:
         return {offset.has_value(), offset};
     }
 
-    static std::optional<IntervalValue> byteOffset(const ValVar* pointer, NodeID target,
+    static std::optional<IntervalValue> byteOffset(const ValVar* pointer,
                                                   const BaseObjVar& base, const StateView& state, const TargetFacts& facts)
     {
-        (void)target;
         std::set<const ValVar*> visited;
         return resolveOffset(pointer, base, state, facts, visited).offset;
     }
