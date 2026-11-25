@@ -1,0 +1,78 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: design-checks
+    # Self-hosted runners on a public repository: never run code from forks.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: headers are LLVM-free
+        shell: bash
+        run: |
+          # DESIGN.md: every .hpp uses SVF IR and AE's public API only; LLVM appears only in main.cpp.
+          if grep -rnE '#include[[:space:]]*[<"]llvm/|llvm::' --include='*.hpp' src; then
+            echo "::error::LLVM used in a header; only src/main.cpp may use LLVM"
+            exit 1
+          fi
+
+      - name: no host paths in committed files
+        shell: bash
+        run: |
+          if git grep -nE '/(home|Users)/[A-Za-z0-9_.-]+/' -- ':!.github'; then
+            echo "::error::absolute host path in a committed file"
+            exit 1
+          fi
+
+  build-test:
+    name: build-and-test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 240
+    env:
+      IMAGE: localhost/svf-ae-verifier-ci:${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: resolve SVF master
+        shell: bash
+        run: |
+          # Pin master to a commit for this run, so the SVF layer cache is keyed by the real revision.
+          sha="$(git ls-remote https://github.com/SVF-tools/SVF.git refs/heads/master | cut -f1)"
+          test -n "$sha"
+          echo "SVF_SHA=$sha" >> "$GITHUB_ENV"
+          echo "SVF master: $sha"
+
+      - name: build (SVF, verifier, ctest)
+        shell: bash
+        run: |
+          # The build stage runs ctest; a failing test fails this step.
+          podman build \
+            --build-arg "SVF_REF=$SVF_SHA" \
+            --build-arg "VERIFIER_GIT_COMMIT=${{ github.event.pull_request.head.sha || github.sha }}" \
+            --build-arg "BUILD_JOBS=${BUILD_JOBS:-4}" \
+            -t "$IMAGE" .
+
+      - name: smoke test
+        shell: bash
+        run: bash .github/scripts/smoke-test.sh "$IMAGE"
+
+      - name: remove image
+        if: always()
+        shell: bash
+        run: podman rmi -f "$IMAGE" || true
