@@ -115,13 +115,14 @@ public:
             }
             const BoundedInt zero(0);
             const auto lastStart = [](const BoundedInt& bound, const BoundedInt& bytes) {
-                return bound.is_infinity() ? bound
-                                           : BoundedInt(bound.getNumeral() - bytes.getNumeral());
+                return BoundedInt(bound.getNumeral() - bytes.getNumeral());
             };
             allIn &= !length->ub().is_infinity() && offset->lb().geq(zero)
                      && offset->ub().leq(lastStart(size->lb(), length->ub()));
             someOut |= length->lb() > zero
-                       && (offset->ub() < zero || offset->lb() > lastStart(size->ub(), length->lb()));
+                       && (offset->ub() < zero
+                           || (!size->ub().is_infinity()
+                               && offset->lb() > lastStart(size->ub(), length->lb())));
         }
         if (!hasObject)
             return result;

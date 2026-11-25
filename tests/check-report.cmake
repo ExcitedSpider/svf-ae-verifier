@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 include("${CMAKE_CURRENT_LIST_DIR}/test-helpers.cmake")
 compile_case()
-run_verifier(0 ok "-property=${property}" "-ae-sparsity=${mode}" "${work}/input.ll")
+# A fixture may supply extra verifier flags on one // ARGS: line.
+file(STRINGS "${case}" args_line REGEX "^// ARGS: " LIMIT_COUNT 1)
+string(REGEX REPLACE "^// ARGS: " "" args_line "${args_line}")
+separate_arguments(fixture_args UNIX_COMMAND "${args_line}")
+run_verifier(0 ok "-property=${property}" "-ae-sparsity=${mode}" ${fixture_args} "${work}/input.ll")
 if(DEFINED python AND NOT python STREQUAL "")
     file(WRITE "${work}/report.json" "${report}")
     execute_process(COMMAND "${python}" "${validator}" "${schema}" "${work}/report.json"

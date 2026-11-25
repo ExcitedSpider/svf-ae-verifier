@@ -38,6 +38,8 @@ The pinned AE string-length query can create field objects. The verifier leaves 
 
 Offsets are available for direct base addresses and single GEPs whose source is the direct address of one object. Sequential steps use the index interval at the GEP and the element's allocation stride. Struct steps use the field's byte offset from the target layout, including padding. Arithmetic keeps negative offsets and infinities and leaves potentially wrapping finite offsets unknown. For example, the dense, semi-sparse, and sparse fixtures leave a guarded external index unproved when AE supplies no useful bounds for the GEP index.
 
+Fixed object sizes below SVF's `-field-limit` are exact. The verifier reads sizes at or above the limit as `[limit, +oo]` because SVF caps the reported size there. For a capped object, a range extending past the limit cannot establish `ae-out-of-bounds-if-reached` on the upper side. A range wholly before the object can still establish that reason.
+
 Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. This includes multidimensional source accesses when the compiler emits a chain instead of a single multistep GEP. Sizes are available for fixed-size non-heap objects.
 
 | Final state at the site | Verdict | Reason |

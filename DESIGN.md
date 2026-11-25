@@ -47,7 +47,7 @@ A result is unsound when a real violation gets no alarm: its site is `proved`, m
 | A pointer whose address set holds two objects, where the check looks at only the larger one. | The evidence has `offset.<object>` and `size.<object>` for both objects, and the small one does not fit, yet the verdict is `proved`. Fix the check. |
 | A correct alarm reported at the wrong source line, so the benchmark cannot match it. | The site's `location` differs from the access's line. Fix the location code. |
 
-Extra alarms follow the same split. An object size capped by SVF (#7) is a fixpoint precision issue and goes to SVF. An access never proved even though AE fixes its index (#4, fixed by #5) was a check precision issue and was fixed here.
+Extra alarms follow the same split. An access never proved even though AE fixes its index (#4, fixed by #5) was a check precision issue and was fixed here. In #7, SVF deliberately caps object sizes as part of AE's abstraction, and the verifier is responsible for reading those sizes soundly.
 
 ## Non-goals
 
@@ -236,7 +236,7 @@ From the PoC (`poc` branch, `REPORT.md`):
 - **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unproved`.
 - **`getGepObjAddrs` is not read-only.** It creates objects and changes the trace when called after the analysis, so `StateView` cannot use it.
 - **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier computes single-GEP offsets from AE index intervals and target layout without this helper.
-- **Dynamic extents.** The allocation-size helper also saturates at the field limit. The verifier uses the fixed byte size of non-heap objects and leaves other extents unknown.
+- **Dynamic extents.** The verifier leaves dynamic and heap extents unknown. It reads fixed sizes at or above the field limit as `[limit, +oo]`. This sound bound cannot prove that an access extending past the limit fits in the object.
 - **Source locations** are strings only.
 
 These are the candidates for a small upstream API addition.
