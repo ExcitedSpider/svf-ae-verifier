@@ -10,6 +10,45 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 - It uses SVF unmodified, through its public API, so it builds against an installed SVF.
 - The code is header-only (`.hpp`) with a single `main.cpp`. No header/source split.
 
+## Responsibilities
+
+SVF-AE and the verifier split the work at AE's final state.
+
+| | SVF-AE | svf-verifier |
+|---|---|---|
+| Does | Computes the abstract-state fixpoint over the ICFG. | Takes that state and checks properties against it. |
+| Must be sound | The fixpoint: every concrete state an execution can reach is contained in AE's abstract state at that node. | Each check, relative to the fixpoint: `proved` only when every state AE allows satisfies the check. |
+| Produces | The final abstract states. | The sites, verdicts, alarms (sites not `proved`), their source locations, reasons and evidence, and the report format. |
+| Owns these wrong results | An unsound or imprecise fixpoint, including object sizes and offsets AE gets wrong. Fixed in SVF. | A wrong check, a missed site, a wrong location or a malformed report. Fixed here. |
+
+So if SVF-AE's fixpoint is sound, every `proved` verdict holds. The verifier neither adds to nor repairs the state.
+
+### Where a fix goes
+
+A result is unsound when a real violation gets no alarm: its site is `proved`, missing, or reported at the wrong location. Look at the site's evidence in the report to decide where the fix goes.
+
+- **The evidence interval leaves out a value that a real execution has.** The fixpoint is unsound, so the fix goes to SVF-AE.
+- **The evidence contains the violating value but the verdict is `proved`, or the site is missing or misplaced.** The check is unsound, so the fix goes to svf-ae-verifier.
+
+**Unsound fixpoint: fix in SVF-AE**
+
+| Example | What the report shows |
+|---|---|
+| `n = read_int(); buf[n] = 0;` where AE's model of the external call gives `n` the interval `[0, 0]` although it can be any `int`. | The access is `proved` with `offset.buf` `[0, 0]`. The check is correct for that state; the state is wrong. Fix SVF's external-call model. |
+| `memcpy(&i, src, sizeof i); a[i] = 0;` where AE does not update `i` after the copy, so `i` keeps its earlier interval. | `offset.a` shows the old value of `i`. Fix AE's handling of the copy. |
+| A loop where widening or narrowing produces an interval smaller than the values the loop really reaches. | The `offset.<object>` interval is narrower than the real index range. Fix AE's fixpoint iteration. |
+
+**Unsound check: fix in svf-ae-verifier**
+
+| Example | What the report shows |
+|---|---|
+| `memcpy(dst, src, 20)` with a 10-byte `dst`, before #8 added memory-call sites. | No site at that line, so no alarm. The state was fine; the verifier did not look. |
+| A bounds check that compares only the start offset with the size, so a 4-byte write at offset 8 of a 10-byte object is `proved`. | `width` `[4, 4]`, `offset.<object>` `[8, 8]` and `size.<object>` `[10, 10]` show the overflow, yet the verdict is `proved`. Fix the check. |
+| A pointer whose address set holds two objects, where the check looks at only the larger one. | The evidence has `offset.<object>` and `size.<object>` for both objects, and the small one does not fit, yet the verdict is `proved`. Fix the check. |
+| A correct alarm reported at the wrong source line, so the benchmark cannot match it. | The site's `location` differs from the access's line. Fix the location code. |
+
+Extra alarms follow the same split. An object size capped by SVF (#7) is a fixpoint precision issue and goes to SVF. An access never proved even though AE fixes its index (#4, fixed by #5) was a check precision issue and was fixed here.
+
 ## Non-goals
 
 - Making AE more precise or more sound. If AE's state is wrong, the verdict is wrong; that is an AE issue, reported to SVF, not worked around here.

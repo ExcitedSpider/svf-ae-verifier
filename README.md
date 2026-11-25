@@ -2,6 +2,8 @@
 
 `svf-verifier` checks reachability assertions and load/store bounds using the final states computed by SVF abstract execution. It emits one JSON report per run with a verdict for each site and each selected property. `proved` means the check holds in the available AE model. `unproved` means the tool did not establish the check.
 
+SVF-AE computes the abstract-state fixpoint, and the fixpoint must be sound. The verifier takes that state, checks properties against it, and produces the alarms, their locations and the report. See [Responsibilities](DESIGN.md#responsibilities).
+
 ## Build and run in a container
 
 The Dockerfile is the reference build. It builds SVF `master` and the verifier with the same LLVM 22 compiler and runs CTest during the build.
