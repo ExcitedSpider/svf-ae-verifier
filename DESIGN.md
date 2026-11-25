@@ -233,10 +233,10 @@ No two files share a name. `.hpp` files are included only by `main.cpp` and by e
 
 From the PoC (`poc` branch, `REPORT.md`):
 
-- **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unproved`.
+- **Offset from the base object.** The verifier follows phi and pointer copies and joins offsets by target object. Cycles, loaded pointers and chained nonzero GEPs remain unknown.
 - **`getGepObjAddrs` is not read-only.** It creates objects and changes the trace when called after the analysis, so `StateView` cannot use it.
 - **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier computes single-GEP offsets from AE index intervals and target layout without this helper.
-- **Dynamic extents.** The verifier leaves dynamic and heap extents unknown. It reads fixed sizes at or above the field limit as `[limit, +oo]`. This sound bound cannot prove that an access extending past the limit fits in the object.
+- **Dynamic extents.** The verifier reads `malloc` and `calloc` operands at their allocation node and multiplies their nonnegative byte intervals. Other dynamic allocations remain unknown. Fixed sizes at or above the field limit stay `[limit, +oo]`.
 - **Source locations** are strings only.
 
 These are the candidates for a small upstream API addition.

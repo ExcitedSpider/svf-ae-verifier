@@ -12,6 +12,9 @@
 - 2026-11-25 11:20 AEDT. Applied the container and design follow-up. The Dockerfile defaults to SVF master and preserves the resolved SVF revision and LLVM version. CLI failures leave stdout empty, input is parsed once, and SVF's parser runs once in a validation subprocess to map its error exit to usage status 2. Overflow owns its bounded IR pattern checks and reports SVF object IDs. The test suite passed against the installed master dependency in Podman.
 - 2026-11-25 AEDT. Implemented checked byte offsets for a single GEP from a direct object, using AE index intervals and LLVM target layout for strides and padded fields.
 - 2026-11-25 AEDT. The issue reproducer and independent fixtures passed on pinned SVF in dense, semi-sparse, and sparse AE. In each mode the guarded external index stayed unproved.
+- 2026-11-25 AEDT. The wide fill check reads the module's `wchar_size` flag and uses checked multiplication of AE's count interval.
+- 2026-11-25 AEDT. Heap sizes use allocation-site operands for `malloc` and `calloc`; variable-length stack allocations and unrecognized allocators stay unknown.
+- 2026-11-25 AEDT. Phi and pointer copies now join offsets per target; unknown inputs and cycles remain unknown.
 - 2026-11-25 AEDT. Added annotated external memory call sites with separate read/write verdicts and byte-count evidence; mutable string-length helpers stay outside the verifier.
 - 2026-11-25 AEDT. The pinned Podman build passed 44 CTest checks including schema validation and all three AE modes.
 - 2026-11-25 AEDT. Read fixed object sizes at the SVF field limit as lower bounds and require a finite upper bound to diagnose overflow past the end.

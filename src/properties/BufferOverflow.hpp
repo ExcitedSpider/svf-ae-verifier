@@ -3,6 +3,8 @@
 #include "../Property.hpp"
 #include "Util/ExtAPI.h"
 #include <algorithm>
+#include <limits>
+#include <set>
 
 namespace SVF {
 
@@ -61,6 +63,20 @@ public:
                 length = state.interval(call->getArgument(*rule.count), call);
                 if (length && (length->lb().is_infinity() || length->lb() < BoundedInt(0)))
                     length.reset();
+                if (length && call->getCalledFunction()->getName() == "wmemset")
+                {
+                    const auto width = state.wcharSize();
+                    if (!width || (!length->ub().is_infinity() &&
+                        length->ub().getNumeral() > std::numeric_limits<s64_t>::max() / *width))
+                        length.reset();
+                    else
+                    {
+                        const auto lower = BoundedInt(length->lb().getNumeral() * *width);
+                        const auto upper = length->ub().is_infinity() ? BoundedInt::plus_infinity()
+                            : BoundedInt(length->ub().getNumeral() * *width);
+                        length = IntervalValue(lower, upper);
+                    }
+                }
                 if (length && (rule.maximumOnly || (read && rule.sourceMaximum)))
                     length = IntervalValue(BoundedInt(0), length->ub());
             }
@@ -161,8 +177,7 @@ private:
         if (annotated("STRCPY") || annotated("STRCAT"))
             return CallRule{0, 1, std::nullopt};
         if (annotated("MEMSET"))
-            // The pinned model does not give a sound wide byte count.
-            return CallRule{0, std::nullopt, name == "wmemset" ? std::nullopt : std::optional{2u},
+            return CallRule{0, std::nullopt, 2,
                             name == "__memset_chk"};
         if (!annotated("MEMCPY"))
             return std::nullopt;
@@ -258,20 +273,88 @@ private:
         return IntervalValue(lower, upper);
     }
 
-    static std::optional<IntervalValue> byteOffset(const ValVar* pointer, NodeID target,
-                                                  const BaseObjVar& base, const StateView& state)
+    struct OffsetResult {
+        bool known;
+        std::optional<IntervalValue> offset;
+    };
+
+    static OffsetResult resolveOffset(const ValVar* pointer, const BaseObjVar& base,
+                                      const StateView& state, std::set<const ValVar*>& visited,
+                                      bool encounteredGep = false)
     {
+        if (!pointer)
+            return {false, std::nullopt};
+        if (SVFUtil::isa<ConstNullPtrValVar>(pointer))
+            return {true, std::nullopt};
+        if (!visited.insert(pointer).second)
+            return {false, std::nullopt};
         const auto* def = definition(pointer);
-        if (target == base.getId() && directObject(def) == &base)
-            return IntervalValue(0);
+        if (const auto* object = directObject(def))
+        {
+            visited.erase(pointer);
+            return {true, object == &base ? std::optional{IntervalValue(0)} : std::nullopt};
+        }
+        if (const auto* copy = def ? SVFUtil::dyn_cast<CopyStmt>(def) : nullptr)
+        {
+            if (copy->getCopyKind() != CopyStmt::COPYVAL && copy->getCopyKind() != CopyStmt::BITCAST)
+                return {false, std::nullopt};
+            auto result = resolveOffset(copy->getRHSVar(), base, state, visited, encounteredGep);
+            visited.erase(pointer);
+            return result;
+        }
+        if (const auto* phi = def ? SVFUtil::dyn_cast<PhiStmt>(def) : nullptr)
+        {
+            std::optional<IntervalValue> joined;
+            for (const auto* input : phi->getOpndVars())
+            {
+                const auto result = resolveOffset(input, base, state, visited, encounteredGep);
+                if (!result.known)
+                    return {false, std::nullopt};
+                if (result.offset)
+                {
+                    if (joined)
+                        joined->join_with(*result.offset);
+                    else
+                        joined = result.offset;
+                }
+            }
+            visited.erase(pointer);
+            return {true, joined};
+        }
         const auto* gep = def ? SVFUtil::dyn_cast<GepStmt>(def) : nullptr;
-        if (!gep || directObject(definition(gep->getRHSVar())) != &base)
-            return std::nullopt;
+        if (!gep)
+            return {false, std::nullopt};
+        if (!directObject(definition(gep->getRHSVar())))
+        {
+            if (encounteredGep)
+                return {false, std::nullopt};
+            const auto parent = resolveOffset(gep->getRHSVar(), base, state, visited, true);
+            const auto offset = gepByteOffset(*gep, state);
+            if (!parent.known || !parent.offset || !offset || !parent.offset->is_zero())
+                return {false, std::nullopt};
+            visited.erase(pointer);
+            return {true, offset};
+        }
+        if (directObject(definition(gep->getRHSVar())) != &base)
+        {
+            visited.erase(pointer);
+            return {true, std::nullopt};
+        }
         const auto* node = gep->getICFGNode();
         const auto source = state.addresses(gep->getRHSVar(), node);
         if (!source || source->size() != 1 || state.objectId(*source->begin(), node) != base.getId())
-            return std::nullopt;
-        return gepByteOffset(*gep, state);
+            return {false, std::nullopt};
+        const auto offset = gepByteOffset(*gep, state);
+        visited.erase(pointer);
+        return {offset.has_value(), offset};
+    }
+
+    static std::optional<IntervalValue> byteOffset(const ValVar* pointer, NodeID target,
+                                                  const BaseObjVar& base, const StateView& state)
+    {
+        (void)target;
+        std::set<const ValVar*> visited;
+        return resolveOffset(pointer, base, state, visited).offset;
     }
 };
 

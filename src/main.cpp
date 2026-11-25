@@ -148,7 +148,7 @@ std::vector<PropertyResults> analyze(llvm::Module& module, const Verifier& verif
     const auto layouts = buildGepLayouts(*pag);
     auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
-    const auto state = runAbstractExecution(*pag, layouts);
+    const auto state = runAbstractExecution(*pag, layouts, readWcharSize(module));
     return verifier.run(*pag->getICFG(), state);
 }
 

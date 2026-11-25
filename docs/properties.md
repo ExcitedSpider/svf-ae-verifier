@@ -34,13 +34,13 @@ The sites are loads and stores represented by SVF statements and individual acce
 
 The verifier checks `[offset, offset + length)` against `[0, size)` for every abstract target. A load or store uses the SVF byte size of its value type. A counted byte call uses the AE argument interval, with a maximum alone where the access can stop early. A proof uses the largest possible length and smallest possible object size. A definite violation requires a positive minimum length and a byte outside the largest possible object for every modeled offset.
 
-The pinned AE string-length query can create field objects. The verifier leaves string copy and concatenation lengths unknown, including the wide variants classified by SVF. Wide counts without a sound byte-length model and indirect length arguments stay unknown. A routine without a relevant SVF annotation, such as `wcsncpy` at the pinned revision, has no call site.
+The pinned AE string-length query can create field objects. The verifier leaves string copy and concatenation lengths unknown, including the wide variants classified by SVF. For `wmemset`, it multiplies AE's count interval by the module's `wchar_size` flag. If that flag is missing or multiplication overflows, the length stays unknown. Indirect length arguments stay unknown. A routine without a relevant SVF annotation, such as `wcsncpy` at the pinned revision, has no call site.
 
 Offsets are available for direct base addresses and single GEPs whose source is the direct address of one object. Sequential steps use the index interval at the GEP and the element's allocation stride. Struct steps use the field's byte offset from the target layout, including padding. Arithmetic keeps negative offsets and infinities and leaves potentially wrapping finite offsets unknown. For example, the dense, semi-sparse, and sparse fixtures leave a guarded external index unproved when AE supplies no useful bounds for the GEP index.
 
 Fixed object sizes below SVF's `-field-limit` are exact. The verifier reads sizes at or above the limit as `[limit, +oo]` because SVF caps the reported size there. For a capped object, a range extending past the limit cannot establish `ae-out-of-bounds-if-reached` on the upper side. A range wholly before the object can still establish that reason.
 
-Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. This includes multidimensional source accesses when the compiler emits a chain instead of a single multistep GEP. Sizes are available for fixed-size non-heap objects.
+Phi and pointer-copy inputs are followed and their per-object offsets joined. An unknown input or a cycle leaves the result unknown. A GEP on a phi is supported when all resolved offsets are zero. Other chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. Heap sizes for `malloc` and `calloc` use their allocation-site AE operand intervals in bytes. Other heap allocators and variable-length stack allocations stay unknown.
 
 | Final state at the site | Verdict | Reason |
 |---|---|---|
@@ -49,4 +49,4 @@ Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or 
 | A call has no usable upper bound on length and the analysis cannot establish a definite violation | unproved | `ae-length-unknown` |
 | A possible target has a modeled access range entirely outside the allowed bounds or crossing a bound for all its modeled offsets | unproved | `ae-out-of-bounds-if-reached` |
 | Every modeled target's full access range fits | proved | `ae-in-bounds` |
-| Other bounds evidence, including missing offsets, sizes or widths. Any heap target makes a proof unavailable. | unproved | `ae-bounds-unknown` |
+| Other bounds evidence, including missing offsets, sizes or widths. | unproved | `ae-bounds-unknown` |
