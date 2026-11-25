@@ -20,3 +20,4 @@
 - 2026-11-25 AEDT. Read fixed object sizes at the SVF field limit as lower bounds and require a finite upper bound to diagnose overflow past the end.
 - 2026-11-25 AEDT. The pinned Podman build passed 50 schema-checked CTest checks, including capped-size fixtures at the default limit and at 1024 in all three AE modes.
 - 2026-11-26 AEDT. Separated target layout facts and allocator sizing from the AE state view; property checks receive the facts explicitly.
+- 2026-11-26 AEDT. The amd64 runtime image installs the i386 libc development headers so `clang -m32` inputs compile; the release smoke test compiles and verifies an ILP32 program on amd64.
