@@ -40,7 +40,7 @@ Offsets are available for direct base addresses and single GEPs whose source is 
 
 Fixed object sizes below SVF's `-field-limit` are exact. The verifier reads sizes at or above the limit as `[limit, +oo]` because SVF caps the reported size there. For a capped object, a range extending past the limit cannot establish `ae-out-of-bounds-if-reached` on the upper side. A range wholly before the object can still establish that reason.
 
-Chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. This includes multidimensional source accesses when the compiler emits a chain instead of a single multistep GEP. Heap sizes for `malloc` and `calloc` use their allocation-site AE operand intervals in bytes. Other heap allocators and variable-length stack allocations stay unknown.
+Phi and pointer-copy inputs are followed and their per-object offsets joined. An unknown input or a cycle leaves the result unknown. A GEP on a phi is supported when all resolved offsets are zero. Other chained GEPs, pointers obtained through loads, and GEPs with ambiguous bases or unsupported layouts stay unknown. Heap sizes for `malloc` and `calloc` use their allocation-site AE operand intervals in bytes. Other heap allocators and variable-length stack allocations stay unknown.
 
 | Final state at the site | Verdict | Reason |
 |---|---|---|
