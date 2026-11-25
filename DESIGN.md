@@ -84,14 +84,14 @@ struct Result {
 
 class StateView {
 public:
-    explicit StateView(AbstractInterpretation& ae, const PAG& pag);
+    StateView(AbstractInterpretation& ae, const PAG& pag, const GepLayouts& layouts);
     bool reached(const ICFGNode* node) const;
     std::optional<IntervalValue> interval(const ValVar* var, const ICFGNode* node) const;
     std::optional<AddressValue> addresses(const ValVar* var, const ICFGNode* node) const;
     std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const;
     const BaseObjVar* baseObject(NodeID id) const;
     std::optional<IntervalValue> byteSize(const BaseObjVar* obj) const;
-    IntervalValue constantGepByteOffset(const GepStmt* gep) const;
+    const GepLayout* gepLayout(const GepStmt* gep) const;
 };
 
 StateView runAbstractExecution(const PAG& pag, const GepLayouts& layouts);
