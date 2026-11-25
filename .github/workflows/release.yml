@@ -1,5 +1,7 @@
 name: release
 
+# The version is taken from the latest release tag (v<MAJOR.MINOR.PATCH>-...)
+# and bumped by the chosen part; with no release tag yet, it starts from 0.0.0.
 # The release label is <version>-svf-<SVF short commit>-llvm-<LLVM major>,
 # for example 0.1.0-svf-a8a0f51-llvm-22. It names the Git tag (with a "v"),
 # the GitHub release and the image tag. SVF and LLVM are read from the built
@@ -8,9 +10,11 @@ name: release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: Version to release, without "v". Must equal project(VERSION) in CMakeLists.txt.
-        required: true
+      bump:
+        description: Part of the version to increase
+        type: choice
+        options: [major, minor, fix]
+        default: fix
       svf_ref:
         description: SVF branch, tag or commit to build against
         default: master
@@ -35,7 +39,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 720
     env:
-      VERSION: ${{ inputs.version }}
+      BUMP: ${{ inputs.bump }}
       LOCAL: localhost/svf-ae-verifier-release
     steps:
       - uses: actions/checkout@v4
@@ -48,13 +52,19 @@ jobs:
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "::error::release only from main (got $GITHUB_REF)"; exit 1
           fi
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::version must be MAJOR.MINOR.PATCH (got $VERSION)"; exit 1
+          previous="$(git tag -l 'v*' | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)(-.*)?$/\1/p' | sort -V | tail -1)"
+          IFS=. read -r major minor patch <<< "${previous:-0.0.0}"
+          case "$BUMP" in
+            major) VERSION="$((major + 1)).0.0" ;;
+            minor) VERSION="$major.$((minor + 1)).0" ;;
+            fix)   VERSION="$major.$minor.$((patch + 1))" ;;
+            *) echo "::error::unknown bump $BUMP"; exit 1 ;;
+          esac
+          if git tag -l "v$VERSION" "v$VERSION-*" | grep -q .; then
+            echo "::error::a release tag for $VERSION already exists"; exit 1
           fi
-          cmake_version="$(sed -nE 's/^project\(svf-ae-verifier VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)"
-          if [ "$cmake_version" != "$VERSION" ]; then
-            echo "::error::CMakeLists.txt has version $cmake_version, not $VERSION"; exit 1
-          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "release version: ${previous:-none} -> $VERSION ($BUMP)"
           sha="$(git ls-remote https://github.com/SVF-tools/SVF.git "${{ inputs.svf_ref }}" | head -1 | cut -f1)"
           if [ -z "$sha" ]; then
             # Not a branch or tag name: treat it as a commit.
@@ -73,10 +83,11 @@ jobs:
             podman build --platform "$platform" \
               --build-arg "SVF_REF=$SVF_SHA" \
               --build-arg "VERIFIER_GIT_COMMIT=$GITHUB_SHA" \
+              --build-arg "VERIFIER_VERSION=$VERSION" \
               -t "$LOCAL:$arch" .
             echo "::endgroup::"
             echo "::group::smoke test $platform"
-            bash .github/scripts/smoke-test.sh "$LOCAL:$arch" "$platform"
+            bash .github/scripts/smoke-test.sh "$LOCAL:$arch" "$platform" "$VERSION"
             echo "::endgroup::"
           done
 
