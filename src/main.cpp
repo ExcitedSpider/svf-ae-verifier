@@ -173,7 +173,8 @@ int main(int argc, char** argv)
     args.insert(args.end(), argv + 1, argv + argc);
     if (const int status = validateOptions(args, synopsis))
         return status;
-    const auto inputs = OptionBase::parseOptions(args.size(), args.data(), "SVF AE verifier", synopsis);
+    const std::vector<std::string> inputs =
+        OptionBase::parseOptions(args.size(), args.data(), "SVF AE verifier", synopsis);
 
     switch (Options::AESparsity())
     {
@@ -183,13 +184,13 @@ int main(int argc, char** argv)
     }
 
     Verifier verifier;
-    const auto requested = propertyOption();
+    const std::string requested = propertyOption();
     std::set<std::string_view> seen;
     std::string_view remaining = requested;
     for (;;)
     {
-        const auto comma = remaining.find(',');
-        const auto name = remaining.substr(0, comma);
+        const std::string_view::size_type comma = remaining.find(',');
+        const std::string_view name = remaining.substr(0, comma);
         if (!seen.insert(name).second)
             return fail("Duplicate property", 2);
         if (name == "reach")
@@ -206,7 +207,7 @@ int main(int argc, char** argv)
         return fail("Expected exactly one input module", 2);
     llvm::LLVMContext context;
     llvm::SMDiagnostic diagnostic;
-    auto module = llvm::parseIRFile(inputs.front(), diagnostic, context);
+    std::unique_ptr<llvm::Module> module = llvm::parseIRFile(inputs.front(), diagnostic, context);
     if (!module)
     {
         diagnostic.print(argv[0], llvm::errs());
