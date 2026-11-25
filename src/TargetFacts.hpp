@@ -29,4 +29,15 @@ struct GepLayout {
 
 using GepLayouts = std::unordered_map<const GepStmt*, GepLayout>;
 
+struct TargetFacts {
+    GepLayouts layouts;
+    std::optional<unsigned> wcharSize;
+
+    const GepLayout* gepLayout(const GepStmt* gep) const
+    {
+        const auto it = layouts.find(gep);
+        return it == layouts.end() ? nullptr : &it->second;
+    }
+};
+
 } // namespace SVF

@@ -63,17 +63,17 @@ void addResults(Object& report, const std::vector<PropertyResults>& results)
 {
     Array sites;
     Object properties;
-    for (const auto& property : results)
+    for (const PropertyResults& property : results)
     {
-        auto verdict = Verdict::Proved;
-        for (const auto& site : property.sites)
+        Verdict verdict = Verdict::Proved;
+        for (const Result& site : property.sites)
         {
             if (site.verdict == Verdict::Unproved)
                 verdict = site.verdict;
             Object evidence;
-            for (const auto& entry : site.evidence)
+            for (const Evidence& entry : site.evidence)
                 evidence[entry.name] = intervalJson(entry.value);
-            const auto& loc = site.location;
+            const SourceLocation& loc = site.location;
             Object entry{{"property", property.name}, {"kind", site.site.kind},
                          {"location", Object{{"file", loc.file}, {"line", loc.line},
                                              {"column", loc.column}, {"function", loc.function}}},
@@ -93,7 +93,7 @@ bool writeReport(Object report, const std::string& path = "")
 {
     using namespace std::chrono;
     report["time_unix_ms"] = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    const auto json = llvm::formatv("{0:2}\n", JsonValue(std::move(report))).str();
+    const std::string json = llvm::formatv("{0:2}\n", JsonValue(std::move(report))).str();
     if (path.empty() || path == "-")
         return static_cast<bool>(std::cout << json << std::flush);
     std::ofstream output(path);
@@ -144,12 +144,12 @@ std::vector<PropertyResults> analyze(llvm::Module& module, const Verifier& verif
         throw std::runtime_error("Could not locate installed SVF extapi.bc");
     LLVMModuleSet::buildSVFModule(module);
     PAGBuilder builder;
-    auto* pag = builder.build();
-    const auto layouts = buildGepLayouts(*pag);
-    auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
+    PAG* pag = builder.build();
+    const TargetFacts target = readTargetFacts(module, *pag);
+    AndersenWaveDiff* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
-    const auto state = runAbstractExecution(*pag, layouts, readWcharSize(module));
-    return verifier.run(*pag->getICFG(), state);
+    const StateView state = runAbstractExecution(*pag);
+    return verifier.run(*pag->getICFG(), state, target);
 }
 
 } // namespace
@@ -173,7 +173,8 @@ int main(int argc, char** argv)
     args.insert(args.end(), argv + 1, argv + argc);
     if (const int status = validateOptions(args, synopsis))
         return status;
-    const auto inputs = OptionBase::parseOptions(args.size(), args.data(), "SVF AE verifier", synopsis);
+    const std::vector<std::string> inputs =
+        OptionBase::parseOptions(args.size(), args.data(), "SVF AE verifier", synopsis);
 
     switch (Options::AESparsity())
     {
@@ -183,13 +184,13 @@ int main(int argc, char** argv)
     }
 
     Verifier verifier;
-    const auto requested = propertyOption();
+    const std::string requested = propertyOption();
     std::set<std::string_view> seen;
     std::string_view remaining = requested;
     for (;;)
     {
-        const auto comma = remaining.find(',');
-        const auto name = remaining.substr(0, comma);
+        const std::string_view::size_type comma = remaining.find(',');
+        const std::string_view name = remaining.substr(0, comma);
         if (!seen.insert(name).second)
             return fail("Duplicate property", 2);
         if (name == "reach")
@@ -206,7 +207,7 @@ int main(int argc, char** argv)
         return fail("Expected exactly one input module", 2);
     llvm::LLVMContext context;
     llvm::SMDiagnostic diagnostic;
-    auto module = llvm::parseIRFile(inputs.front(), diagnostic, context);
+    std::unique_ptr<llvm::Module> module = llvm::parseIRFile(inputs.front(), diagnostic, context);
     if (!module)
     {
         diagnostic.print(argv[0], llvm::errs());

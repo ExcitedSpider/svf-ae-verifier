@@ -1,20 +1,12 @@
 #pragma once
 
-#include "../GepLayout.hpp"
+#include "../TargetFacts.hpp"
 #include "Graphs/PAG.h"
 #include "SVF-LLVM/LLVMModule.h"
 #include <llvm/IR/GetElementPtrTypeIterator.h>
 #include <utility>
 
 namespace SVF {
-
-inline std::optional<unsigned> readWcharSize(const llvm::Module& module)
-{
-    const auto* flag = llvm::mdconst::dyn_extract_or_null<llvm::ConstantInt>(module.getModuleFlag("wchar_size"));
-    if (!flag || flag->getValue().getActiveBits() > 32 || flag->isZero())
-        return std::nullopt;
-    return static_cast<unsigned>(flag->getZExtValue());
-}
 
 inline std::optional<GepLayout> readGepLayout(const GepStmt& gep, LLVMModuleSet& modules)
 {
@@ -67,17 +59,21 @@ inline std::optional<GepLayout> readGepLayout(const GepStmt& gep, LLVMModuleSet&
     return result;
 }
 
-inline GepLayouts buildGepLayouts(PAG& pag)
+inline TargetFacts readTargetFacts(const llvm::Module& module, const PAG& pag)
 {
     auto& modules = *LLVMModuleSet::getLLVMModuleSet();
-    GepLayouts layouts;
-    for (const auto* stmt : pag.getSVFStmtSet(SVFStmt::Gep))
+    TargetFacts facts;
+    const auto* flag = llvm::mdconst::dyn_extract_or_null<llvm::ConstantInt>(module.getModuleFlag("wchar_size"));
+    if (flag && flag->getValue().getActiveBits() <= 32 && !flag->isZero())
+        facts.wcharSize = static_cast<unsigned>(flag->getZExtValue());
+    // SVF exposes this lookup only through a non-const accessor.
+    for (const auto* stmt : const_cast<PAG&>(pag).getSVFStmtSet(SVFStmt::Gep))
     {
         const auto* gep = SVFUtil::cast<GepStmt>(stmt);
         if (auto layout = readGepLayout(*gep, modules))
-            layouts.emplace(gep, std::move(*layout));
+            facts.layouts.emplace(gep, std::move(*layout));
     }
-    return layouts;
+    return facts;
 }
 
 } // namespace SVF
