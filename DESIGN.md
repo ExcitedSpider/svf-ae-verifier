@@ -21,7 +21,7 @@ A property verifier built on SVF's abstract execution (AE). AE computes abstract
 | Property | Sites | Proved when |
 |---|---|---|
 | `reach` | calls to `__verifier_assert`, `__verifier_eq`, `__verifier_unreachable`, `reach_error` | the check's condition is `[1, 1]` at the call (for `eq`, both operands are the same finite singleton). Error sites always remain unproved. |
-| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single constant array or pointer GEPs from a direct base whose AE offset is below the field limit. Heap targets leave the site unproved. |
+| `overflow` | loads and stores through a pointer, excluding synthetic call and return effects | every target has a known fixed non-heap size and its access range fits. The property recognizes direct base addresses and single GEPs from a direct base using AE index intervals and target layout. Heap targets leave the site unproved. |
 
 Every other situation is `unproved`, with a reason saying what AE saw (for example `ae-must-fail-if-reached` when the condition is `[0, 0]`). Verdicts are `proved` and `unproved` only. `Proved` is sound with respect to AE: every execution AE models satisfies the check. `Unproved` claims nothing; in particular it is not a violation. Reporting violations (`unsafe`) would need evidence beyond AE's state, such as a replayed witness, and is out of scope.
 
@@ -54,7 +54,7 @@ The canonical compilation is SVF's usual one: `clang -g -S -emit-llvm -Xclang -d
 | `Verifier` | Runs the selected properties over the ICFG after AE has finished and groups `Result`s by property, including selected properties with no sites. | Do I/O or set up SVF. |
 | `svf-verifier` (tool) | Options, loading the module, the AE setup, running the `Verifier`, writing the **complete** report. | Decide verdicts. |
 
-Every `.hpp` is LLVM-free: SVF IR and AE's public API only. LLVM appears only in `main.cpp`.
+Only headers under `src/llvm/` may use LLVM, and only `main.cpp` includes those headers. The layout bridge builds a table of plain GEP layout facts once after the PAG is built. `StateView` exposes those facts to properties alongside its read-only AE queries. The overflow property owns the index interval reads and offset arithmetic.
 
 ### Interfaces (sketch)
 
@@ -84,17 +84,17 @@ struct Result {
 
 class StateView {
 public:
-    explicit StateView(AbstractInterpretation& ae, const PAG& pag);
+    StateView(AbstractInterpretation& ae, const PAG& pag, const GepLayouts& layouts);
     bool reached(const ICFGNode* node) const;
     std::optional<IntervalValue> interval(const ValVar* var, const ICFGNode* node) const;
     std::optional<AddressValue> addresses(const ValVar* var, const ICFGNode* node) const;
     std::optional<NodeID> objectId(u32_t address, const ICFGNode* node) const;
     const BaseObjVar* baseObject(NodeID id) const;
     std::optional<IntervalValue> byteSize(const BaseObjVar* obj) const;
-    IntervalValue constantGepByteOffset(const GepStmt* gep) const;
+    const GepLayout* gepLayout(const GepStmt* gep) const;
 };
 
-StateView runAbstractExecution(const PAG& pag); // starts the process-wide AE singleton once
+StateView runAbstractExecution(const PAG& pag, const GepLayouts& layouts);
 
 class Property {
 public:
@@ -158,7 +158,9 @@ svf-ae-verifier/
 ├── include/
 │   └── verifier.h                # property language for users' C code (macros, intrinsics, nondet)
 ├── src/
-│   ├── main.cpp                  # the only .cpp: options, SVF + AE setup, report writing (only place using LLVM)
+│   ├── main.cpp                  # options, module/PAG setup, AE, properties and reporting
+│   ├── GepLayout.hpp             # plain per-GEP layout facts
+│   ├── llvm/Layout.hpp           # reads target layout before AE
 │   ├── Verifier.hpp              # runs properties over the ICFG after AE
 │   ├── Property.hpp              # Property interface, Site
 │   ├── StateView.hpp             # read-only queries of AE's final state; the only file that calls AE
@@ -188,7 +190,7 @@ From the PoC (`poc` branch, `REPORT.md`):
 
 - **Offset from the base object.** For `p = buf + i; q = p + j; *q`, the final state does not give `q`'s offset from `buf`. `BufOverflowDetector` tracks this internally during the analysis. This currently makes most `overflow` sites `unproved`.
 - **`getGepObjAddrs` is not read-only.** It creates objects and changes the trace when called after the analysis, so `StateView` cannot use it.
-- **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier uses offsets only for direct base addresses and single constant GEPs with supported type steps and offsets below the limit.
+- **`getGepByteOffset` clamps.** It caps dynamic indices at the field limit and drops negative index ranges. The constant path also saturates at the field limit and sums struct field sizes without including inter-field padding. The verifier computes single-GEP offsets from AE index intervals and target layout without this helper.
 - **Dynamic extents.** The allocation-size helper also saturates at the field limit. The verifier uses the fixed byte size of non-heap objects and leaves other extents unknown.
 - **Source locations** are strings only.
 

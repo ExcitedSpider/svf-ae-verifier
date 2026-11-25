@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Property.hpp"
+#include <algorithm>
 
 namespace SVF {
 
@@ -77,10 +78,13 @@ public:
                 missing = true;
                 continue;
             }
-            const auto end = *offset + IntervalValue(width);
             const BoundedInt zero(0);
-            allIn &= offset->lb().geq(zero) && end.ub().leq(size->lb());
-            someOut |= offset->ub() < zero || end.lb() > size->ub();
+            const auto lastStart = [width](const BoundedInt& bound) {
+                return bound.is_infinity() ? bound
+                                           : BoundedInt(bound.getNumeral() - static_cast<s64_t>(width));
+            };
+            allIn &= offset->lb().geq(zero) && offset->ub().leq(lastStart(size->lb()));
+            someOut |= offset->ub() < zero || offset->lb() > lastStart(size->ub());
         }
         if (!hasObject)
             return result;
@@ -118,6 +122,68 @@ private:
         return addr ? SVFUtil::dyn_cast<BaseObjVar>(addr->getRHSVar()) : nullptr;
     }
 
+    static std::optional<IntervalValue> gepByteOffset(const GepStmt& gep, const StateView& state)
+    {
+        const auto* layout = state.gepLayout(&gep);
+        if (!layout)
+            return std::nullopt;
+        // Use wide intermediates and reject finite arithmetic that could wrap
+        // at the target's pointer index width.
+        const auto limit = static_cast<__int128>(1) << (layout->indexBits - 1);
+        const auto accumulate = [limit](BoundedInt& sum, const BoundedInt& index, std::uint64_t stride) {
+            if (!stride || sum.is_infinity())
+                return true;
+            if (index.is_infinity())
+            {
+                sum = index;
+                return true;
+            }
+            const auto term = static_cast<__int128>(index.getNumeral()) * stride;
+            const auto next = sum.getNumeral() + term;
+            if (term < -limit || term >= limit || next < -limit || next >= limit)
+                return false;
+            sum = BoundedInt(static_cast<s64_t>(next));
+            return true;
+        };
+
+        const auto& steps = gep.getOffsetVarAndGepTypePairVec();
+        auto step = steps.begin();
+        BoundedInt lower(0), upper(0);
+        for (const auto& fact : layout->steps)
+        {
+            IntervalValue index(1);
+            std::uint64_t stride;
+            if (const auto* field = std::get_if<StructGepStep>(&fact))
+                stride = field->offset;
+            else
+            {
+                const auto& sequential = std::get<SequentialGepStep>(fact);
+                stride = sequential.stride;
+                if (sequential.constantIndex)
+                    index = IntervalValue(*sequential.constantIndex);
+                else
+                {
+                    const auto value = state.interval(step->first, gep.getICFGNode());
+                    if (!value)
+                        return std::nullopt;
+                    index = *value;
+                    const auto bits = std::min(layout->indexBits, sequential.operandBits);
+                    const auto indexLimit = static_cast<__int128>(1) << (bits - 1);
+                    if ((!index.lb().is_infinity() && index.lb().getNumeral() < -indexLimit)
+                        || (!index.ub().is_infinity() && index.ub().getNumeral() >= indexLimit))
+                        return std::nullopt;
+                    if ((!layout->inbounds || bits < sequential.operandBits)
+                        && (index.lb().is_infinity() || index.ub().is_infinity()))
+                        return std::nullopt;
+                }
+            }
+            if (!accumulate(lower, index.lb(), stride) || !accumulate(upper, index.ub(), stride))
+                return std::nullopt;
+            ++step;
+        }
+        return IntervalValue(lower, upper);
+    }
+
     static std::optional<IntervalValue> byteOffset(const ValVar* pointer, NodeID target,
                                                   const BaseObjVar& base, const StateView& state)
     {
@@ -125,19 +191,13 @@ private:
         if (target == base.getId() && directObject(def) == &base)
             return IntervalValue(0);
         const auto* gep = def ? SVFUtil::dyn_cast<GepStmt>(def) : nullptr;
-        if (!gep || !gep->isConstantOffset() || directObject(definition(gep->getRHSVar())) != &base)
+        if (!gep || directObject(definition(gep->getRHSVar())) != &base)
             return std::nullopt;
         const auto* node = gep->getICFGNode();
         const auto source = state.addresses(gep->getRHSVar(), node);
         if (!source || source->size() != 1 || state.objectId(*source->begin(), node) != base.getId())
             return std::nullopt;
-        for (const auto& step : gep->getOffsetVarAndGepTypePairVec())
-            if (!step.second || !SVFUtil::isa<SVFPointerType, SVFArrayType>(step.second))
-                return std::nullopt;
-        // The constant helper saturates at the field limit and omits struct padding.
-        const auto offset = state.constantGepByteOffset(gep);
-        return offset.ub().geq(BoundedInt(Options::MaxFieldLimit())) ? std::nullopt
-                                                                  : std::optional{offset};
+        return gepByteOffset(*gep, state);
     }
 };
 

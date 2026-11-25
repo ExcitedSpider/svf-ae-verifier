@@ -1,4 +1,5 @@
 #include "Verifier.hpp"
+#include "llvm/Layout.hpp"
 #include "properties/BufferOverflow.hpp"
 #include "properties/Reachability.hpp"
 #include "SVF-LLVM/PAGBuilder.h"
@@ -142,9 +143,10 @@ std::vector<PropertyResults> analyze(llvm::Module& module, const Verifier& verif
     LLVMModuleSet::buildSVFModule(module);
     PAGBuilder builder;
     auto* pag = builder.build();
+    const auto layouts = buildGepLayouts(*pag);
     auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
-    const auto state = runAbstractExecution(*pag);
+    const auto state = runAbstractExecution(*pag, layouts);
     return verifier.run(*pag->getICFG(), state);
 }
 

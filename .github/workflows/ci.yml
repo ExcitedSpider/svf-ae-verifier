@@ -22,14 +22,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: headers are LLVM-free
+      - name: enforce the LLVM layout boundary
         shell: bash
         run: |
-          # DESIGN.md: every .hpp uses SVF IR and AE's public API only; LLVM appears only in main.cpp.
-          if grep -rnE '#include[[:space:]]*[<"]llvm/|llvm::' --include='*.hpp' src; then
-            echo "::error::LLVM used in a header; only src/main.cpp may use LLVM"
+          if git grep -nE '#[[:space:]]*include[[:space:]]*[<"](llvm|llvm-c|SVF-LLVM)/|llvm::' -- '*.hpp' ':!src/llvm/**'; then
+            echo "::error::Only headers under src/llvm may use LLVM"
             exit 1
           fi
+          if git grep -nE '#[[:space:]]*include[[:space:]]*[<"][^">]*llvm/[^">]+[.]hpp[">]' -- ':!src/main.cpp'; then
+            echo "::error::Only src/main.cpp may include src/llvm headers"
+            exit 1
+          fi
+          for header in src/llvm/*.hpp; do
+            name=${header##*/}
+            if git grep -nE "#[[:space:]]*include[[:space:]]*[<\"]${name%.hpp}[.]hpp[>\"]" -- ':!src/main.cpp'; then
+              echo "::error::Only src/main.cpp may include src/llvm headers"
+              exit 1
+            fi
+          done
 
       - name: no host paths in committed files
         shell: bash
