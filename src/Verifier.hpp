@@ -14,7 +14,7 @@ class Verifier {
 public:
     void add(std::unique_ptr<Property> property) { properties.push_back(std::move(property)); }
 
-    std::vector<PropertyResults> run(const ICFG& icfg, const StateView& state) const
+    std::vector<PropertyResults> run(const ICFG& icfg, const StateView& state, const TargetFacts& target) const
     {
         std::vector<PropertyResults> results;
         for (const auto& property : properties)
@@ -22,7 +22,7 @@ public:
             auto& group = results.emplace_back(PropertyResults{std::string(property->name()), {}});
             for (const auto& site : property->sites(icfg))
             {
-                auto result = property->check(site, state);
+                auto result = property->check(site, state, target);
                 result.location = sourceLocation(site);
                 group.sites.push_back(std::move(result));
             }

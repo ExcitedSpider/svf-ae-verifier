@@ -149,7 +149,7 @@ std::vector<PropertyResults> analyze(llvm::Module& module, const Verifier& verif
     auto* andersen = AndersenWaveDiff::createAndersenWaveDiff(pag);
     builder.updateCallGraph(andersen->getCallGraph());
     const auto state = runAbstractExecution(*pag, target.layouts, target.wcharSize);
-    return verifier.run(*pag->getICFG(), state);
+    return verifier.run(*pag->getICFG(), state, target);
 }
 
 } // namespace

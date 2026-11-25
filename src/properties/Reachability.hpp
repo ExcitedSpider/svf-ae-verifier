@@ -30,7 +30,7 @@ public:
         return result;
     }
 
-    Result check(const Site& site, const StateView& state) const override
+    Result check(const Site& site, const StateView& state, const TargetFacts&) const override
     {
         const auto& call = *SVFUtil::cast<CallICFGNode>(site.node);
         const bool equality = site.kind == "verifier_eq";
