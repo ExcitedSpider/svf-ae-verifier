@@ -8,6 +8,14 @@
 
 namespace SVF {
 
+inline std::optional<unsigned> readWcharSize(const llvm::Module& module)
+{
+    const auto* flag = llvm::mdconst::dyn_extract_or_null<llvm::ConstantInt>(module.getModuleFlag("wchar_size"));
+    if (!flag || flag->getValue().getActiveBits() > 32 || flag->isZero())
+        return std::nullopt;
+    return static_cast<unsigned>(flag->getZExtValue());
+}
+
 inline std::optional<GepLayout> readGepLayout(const GepStmt& gep, LLVMModuleSet& modules)
 {
     if (!modules.hasLLVMValue(gep.getLHSVar()))

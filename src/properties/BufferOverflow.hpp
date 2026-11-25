@@ -3,6 +3,7 @@
 #include "../Property.hpp"
 #include "Util/ExtAPI.h"
 #include <algorithm>
+#include <limits>
 
 namespace SVF {
 
@@ -61,6 +62,20 @@ public:
                 length = state.interval(call->getArgument(*rule.count), call);
                 if (length && (length->lb().is_infinity() || length->lb() < BoundedInt(0)))
                     length.reset();
+                if (length && call->getCalledFunction()->getName() == "wmemset")
+                {
+                    const auto width = state.wcharSize();
+                    if (!width || (!length->ub().is_infinity() &&
+                        length->ub().getNumeral() > std::numeric_limits<s64_t>::max() / *width))
+                        length.reset();
+                    else
+                    {
+                        const auto lower = BoundedInt(length->lb().getNumeral() * *width);
+                        const auto upper = length->ub().is_infinity() ? BoundedInt::plus_infinity()
+                            : BoundedInt(length->ub().getNumeral() * *width);
+                        length = IntervalValue(lower, upper);
+                    }
+                }
                 if (length && (rule.maximumOnly || (read && rule.sourceMaximum)))
                     length = IntervalValue(BoundedInt(0), length->ub());
             }
@@ -161,8 +176,7 @@ private:
         if (annotated("STRCPY") || annotated("STRCAT"))
             return CallRule{0, 1, std::nullopt};
         if (annotated("MEMSET"))
-            // The pinned model does not give a sound wide byte count.
-            return CallRule{0, std::nullopt, name == "wmemset" ? std::nullopt : std::optional{2u},
+            return CallRule{0, std::nullopt, 2,
                             name == "__memset_chk"};
         if (!annotated("MEMCPY"))
             return std::nullopt;
