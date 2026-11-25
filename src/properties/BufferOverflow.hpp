@@ -120,7 +120,9 @@ public:
             const auto* base = state.baseObject(*id);
             hasObject |= base != nullptr;
             const auto offset = base ? byteOffset(pointer, *id, *base, state, facts) : std::nullopt;
-            const auto size = state.byteSize(base);
+            auto size = state.fixedByteSize(base);
+            if (!size)
+                size = heapByteSize(base, state);
             const auto target = std::to_string(*id);
             result.evidence.push_back({"offset." + target, offset});
             result.evidence.push_back({"size." + target, size});
@@ -155,6 +157,54 @@ public:
     }
 
 private:
+    static std::optional<IntervalValue> heapByteSize(const BaseObjVar* object, const StateView& state)
+    {
+        if (!object || !object->isHeap())
+            return std::nullopt;
+        const AddrStmt* allocation = nullptr;
+        for (const auto* edge : object->getOutEdges())
+        {
+            const auto* addr = SVFUtil::dyn_cast<AddrStmt>(edge);
+            if (!addr || addr->getRHSVar() != object)
+                continue;
+            if (allocation)
+                return std::nullopt;
+            allocation = addr;
+        }
+        if (!allocation)
+            return std::nullopt;
+        const auto* call = SVFUtil::dyn_cast<CallICFGNode>(allocation->getICFGNode());
+        if (!call || !call->getCalledFunction())
+            return std::nullopt;
+        const auto& name = call->getCalledFunction()->getName();
+        const auto& operands = allocation->getArrSize();
+        if (!((name == "malloc" && operands.size() == 1) ||
+              (name == "calloc" && operands.size() == 2)))
+            return std::nullopt;
+        s64_t lower = 1;
+        BoundedInt upper(1);
+        for (const auto* operand : operands)
+        {
+            const auto* value = SVFUtil::dyn_cast<ValVar>(operand);
+            const auto amount = state.interval(value, allocation->getICFGNode());
+            if (!amount || amount->ub() < BoundedInt(0))
+                return std::nullopt;
+            const s64_t low = amount->lb().is_minus_infinity() ? 0 : std::max<s64_t>(0, amount->lb().getNumeral());
+            if (__builtin_mul_overflow(lower, low, &lower))
+                return std::nullopt;
+            if (amount->ub().is_plus_infinity() || upper.is_plus_infinity())
+                upper = BoundedInt::plus_infinity();
+            else
+            {
+                s64_t high;
+                if (__builtin_mul_overflow(upper.getNumeral(), amount->ub().getNumeral(), &high))
+                    return std::nullopt;
+                upper = BoundedInt(high);
+            }
+        }
+        return IntervalValue(BoundedInt(lower), upper);
+    }
+
     struct CallRule {
         unsigned destination;
         std::optional<unsigned> source;
