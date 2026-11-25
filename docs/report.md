@@ -7,7 +7,7 @@ The machine-readable definition is [`schema/report.schema.json`](../schema/repor
 | Field | Meaning |
 |---|---|
 | `schema_version` | Integer report format version, currently `1`. |
-| `tool_version`, `tool_commit` | Verifier version and Git commit captured at configuration. Builds without Git metadata can pass `-DVERIFIER_GIT_COMMIT=<sha>`. If neither source is available, the revision is `unknown`. |
+| `tool_version`, `tool_commit` | Verifier version and Git commit captured at configuration. Release builds report the release version (set with `-DVERIFIER_RELEASE_VERSION`); other builds report the project version in `CMakeLists.txt`. Builds without Git metadata can pass `-DVERIFIER_GIT_COMMIT=<sha>`. If neither source is available, the revision is `unknown`. |
 | `svf_version`, `svf_commit` | SVF package version and exact source revision. The revision is `unknown` when build metadata is unavailable. |
 | `llvm_version` | Exact LLVM package version used to build the verifier. |
 | `command_line` | Original argument vector, including the invoked executable. |

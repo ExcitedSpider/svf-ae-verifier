@@ -5,6 +5,8 @@ set -euo pipefail
 
 image="$1"
 platform="${2:-}"
+# Optional: the tool_version the report must carry (set by the release workflow).
+expected_version="${3:-}"
 run=(podman run --rm)
 if [ -n "$platform" ]; then
     run+=(--platform "$platform")
@@ -39,6 +41,10 @@ jq -e '
     and .svf_commit != "unknown"
     and (.llvm_version | type) == "string"
 ' "$report" > /dev/null
+if [ -n "$expected_version" ]; then
+    jq -e --arg v "$expected_version" '.tool_version == $v' "$report" > /dev/null \
+        || { echo "expected tool_version $expected_version" >&2; exit 1; }
+fi
 
 expect_exit() {
     local expected="$1"

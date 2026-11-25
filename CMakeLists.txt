@@ -24,12 +24,21 @@ endif()
 if(NOT verifier_commit)
     set(verifier_commit unknown)
 endif()
+# Releases are versioned by Git tags; the release workflow passes the version in.
+set(VERIFIER_RELEASE_VERSION "" CACHE STRING "Release version reported as tool_version (default: project version)")
+set(verifier_version "${PROJECT_VERSION}")
+if(VERIFIER_RELEASE_VERSION)
+    if(NOT VERIFIER_RELEASE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+        message(FATAL_ERROR "VERIFIER_RELEASE_VERSION must be MAJOR.MINOR.PATCH, got ${VERIFIER_RELEASE_VERSION}")
+    endif()
+    set(verifier_version "${VERIFIER_RELEASE_VERSION}")
+endif()
 
 add_executable(svf-verifier src/main.cpp)
 target_compile_features(svf-verifier PRIVATE cxx_std_17)
 target_link_libraries(svf-verifier PRIVATE SVF::SvfLLVM)
 target_compile_definitions(svf-verifier PRIVATE
-    VERIFIER_VERSION="${PROJECT_VERSION}" VERIFIER_COMMIT="${verifier_commit}"
+    VERIFIER_VERSION="${verifier_version}" VERIFIER_COMMIT="${verifier_commit}"
     VERIFIER_SVF_VERSION="${SVF_VERSION}" VERIFIER_SVF_COMMIT="${svf_commit}"
     VERIFIER_LLVM_VERSION="${LLVM_PACKAGE_VERSION}"
     VERIFIER_EXTAPI_PATH="${SVF_INSTALL_EXTAPI_BC}")

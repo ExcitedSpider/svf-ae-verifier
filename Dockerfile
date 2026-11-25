@@ -54,6 +54,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ARG VERIFIER_GIT_COMMIT
+ARG VERIFIER_VERSION
 ARG BUILD_JOBS
 WORKDIR /src/verifier
 COPY CMakeLists.txt ./
@@ -65,6 +66,7 @@ COPY docs/report.md docs/
 RUN cmake -S . -B /build/verifier -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DSVF_DIR=/opt/svf/lib/cmake/SVF -DLLVM_DIR="$(llvm-config --cmakedir)" \
         "-DVERIFIER_GIT_COMMIT=${VERIFIER_GIT_COMMIT}" \
+        "-DVERIFIER_RELEASE_VERSION=${VERIFIER_VERSION}" \
         -DVERIFIER_REQUIRE_SCHEMA_CHECK=ON \
     && cmake --build /build/verifier --parallel "${BUILD_JOBS}" \
     && ctest --test-dir /build/verifier --output-on-failure \
